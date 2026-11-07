@@ -1,0 +1,111 @@
+import json
+import os
+
+def dic_read(dic_path):
+    """读取 SV 字典：``词<TAB>音素 音素 ...``（DiffSinger 规范）。
+
+    为兼容旧文件，若一行里没有制表符，则退回「第一个空白分隔」的写法。
+    """
+    dic = {}
+    with open(dic_path, encoding='utf-8-sig') as f:
+        for raw in f:
+            line = raw.strip('\r\n')
+            if not line.strip():
+                continue
+            parts = line.split('\t', 1)
+            if len(parts) < 2:
+                parts = line.split(None, 1)
+            if len(parts) < 2:
+                continue
+            dic[parts[0].strip()] = parts[1].split()
+    dic['R'] = ['sil']
+    dic['SP'] = ['sil']
+    return dic
+
+def word_phone_json_read(json_path):
+    with open(json_path,encoding='utf-8') as f:
+        data = json.load(f)
+    return data
+
+def word2phone(text,dic,num):
+    word = text['text']
+    xmin = float(text['xmin'])
+    middle = float(text['middle'])
+    xmax = float(text['xmax'])
+    try:
+        r"""
+        ai	a	:\i
+        ei	e	:\i
+        an	a	:n
+        en	@	:n
+        ang	A	N
+        ong	U	N
+        eng	@	N
+        er	a	r\`
+        """
+        phone = dic[word]
+        if len(phone) == 1:
+            return phone,[xmin]
+        elif word in ['ai','ei','an','en','ang','ong','eng','er']:
+            end = xmax - ((xmax - xmin) * num /100)
+            return phone, [xmin, end]
+        elif len(phone) == 2:
+            return phone,[xmin,middle]
+        elif len(phone) == 3 :
+            end = xmax - ((xmax - middle) * num /100)
+            return phone, [xmin, middle, end]
+        else:
+            print('长度错误！！！')
+    except Exception as e:
+        print('没有找到%s'%word)
+        print(e)
+        return word,[xmin]
+
+
+def run(dic_path,json_path,wav_path,num):
+    dic = dic_read(dic_path)
+    data = word_phone_json_read(json_path)
+
+    for wavname, content in data.items():
+        # json 的 key 已经是文件名（不含扩展名）；只兼容旧数据里可能带的后缀
+        for ext in (".wav", ".WAV", ".TextGrid", ".textgrid"):
+            if wavname.endswith(ext):
+                wavname = wavname[: -len(ext)]
+                break
+        phonemes = []
+        boundaries = []
+        for i in content['phones'].values():
+            j = word2phone(i, dic,num)
+            phonemes.append(j[0])
+            boundaries.append(j[1])
+        boundaries.append([content['wav_long'][1]])
+
+        phonemes_list = []
+        for sub_list in phonemes:
+            for num_str in sub_list:
+                phonemes_list.append(num_str)
+        boundaries_list = []
+        for sub_list in boundaries:
+            for num_str in sub_list:
+                boundaries_list.append(str(num_str))
+        if wavname == '_bai_fa_a_ai_nang_lia':
+            print(123)
+        data_svdb = {
+        "filename": wavname+'.wav',
+        "phonemes": phonemes_list,
+        "boundaries": boundaries_list
+    }
+        with open(wav_path+'\\'+wavname+'.json', 'w',encoding='utf-8') as f:
+            json.dump(data_svdb, f)
+
+
+
+if __name__ == "__main__":
+    dic_path = r'dicts/mandarin-xsampa-dict.txt'
+    json_path = r'F:\Download\SVDBCreator_Release_1.0.0\baini_zh\wav\E3\json' + r'\word_phone.json'
+    wav_path = r'F:\Download\SVDBCreator_Release_1.0.0\baini_zh\wav\E3'
+    num = 50
+
+
+    print('-' * 15 + '欢迎使用TG2SVDB' + '-' * 15)
+    run(dic_path,json_path,wav_path,num)

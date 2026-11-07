@@ -1,0 +1,26 @@
+# Gradle / Android build output
+.gradle/
+build/
+app/build/
+.kotlin/
+.idea/
+*.iml
+local.properties
+
+# Chaquopy build artifacts
+wheels/
+
+# Model weights are NOT redistributed in this repository
+*.onnx
+assets/models/
+
+# Packaged artifacts
+*.apk
+*.aab
+*.zip
+*.jar
+*.so
+
+# OS noise
+.DS_Store
+Thumbs.db

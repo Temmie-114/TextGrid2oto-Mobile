@@ -1,0 +1,9 @@
+{
+    "samplerate": 48000,
+    "timestep": 0.01,
+    "hop_size": 480,
+    "fft_size": 2048,
+    "win_size": 2048,
+    "num_mels": 80,
+    "vocab_size": 256
+}
