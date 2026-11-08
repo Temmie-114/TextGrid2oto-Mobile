@@ -559,7 +559,7 @@ def _floats(value, default=None):
 
 
 def _job_oto(p):
-    from tg2oto.json2oto import json2oto, json2CV_oto, json2VCV_oto, json2arpasing_oto
+    from tg2oto.json2oto import json2oto, json2CV_oto, json2VCV_oto, json2arpasing_oto, json2phone_oto
     from tg2oto.oto import oto_rw, oto_check
 
     wav_path = p["wav_dir"]
@@ -641,8 +641,40 @@ def _job_oto(p):
         json2CV_oto.run(presamp, word_phone, wav_path, cv_sum, vc_sum, vv_sum, ignore)
     elif mode == "CVVC":
         json2oto.run(presamp, word_phone, wav_path, cv_sum, vc_sum, vv_sum, ignore)
+    elif mode == "PHONE":
+        # C+V：逐音素标注，不用 presamp，输出单独的 phone_oto.ini
+        json2phone_oto.run(presamp, word_phone, wav_path, cv_sum, vc_sum, vv_sum, ignore)
     else:
         raise ValueError(f"未知录音方案: {mode}")
+
+    # ---- 可选：生成 frq 基频率表（RMVPE）----
+    # 逐文件整段推理，CPU 上大约 0.1~0.5 秒/秒音频，Android 上还要慢数倍，
+    # 所以这是独立开关，开启前界面会提示「需要较长时间」。
+    if bool(p.get("make_frq", False)):
+        try:
+            from tg2oto.json2oto import frq_gen
+            _mp = p.get("rmvpe_model") or ""
+            if not _mp or not os.path.isfile(_mp):
+                log(f"[frq] 找不到 RMVPE 模型: {_mp}，跳过")
+            else:
+                log("[frq] 开始用 RMVPE 生成基频率表，这一步比较慢，请耐心等待…")
+                def _frq_progress(v):
+                    # 直接打到面板进度条；文件级粒度，每处理完一个 wav 前进一格
+                    if _sink is not None:
+                        try:
+                            _sink.progress(min(1.0, max(0.0, float(v))))
+                        except Exception:
+                            pass
+
+                frq_gen.generate_for_dir(
+                    wav_path, _mp,
+                    threads=int(p.get("threads") or 2),
+                    log=log,
+                    should_stop=is_cancelled,
+                    progress=_frq_progress,
+                )
+        except Exception as e:
+            log(f"[frq] 生成失败: {e}")
 
     try:
         import json as _json

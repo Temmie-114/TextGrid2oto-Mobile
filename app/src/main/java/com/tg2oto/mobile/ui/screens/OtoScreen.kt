@@ -19,11 +19,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tg2oto.mobile.R
+import com.tg2oto.mobile.core.ModelManager
 import com.tg2oto.mobile.ui.AppViewModel
 import com.tg2oto.mobile.ui.components.FileField
 import com.tg2oto.mobile.ui.components.FolderField
@@ -38,13 +40,14 @@ import com.tg2oto.mobile.util.rememberFilePathPicker
 import com.tg2oto.mobile.util.rememberFolderPicker
 import org.json.JSONObject
 import com.tg2oto.mobile.ui.i18n.L
+import java.io.File
 
 // 官方 config/run-config-*.txt 的默认参数，按录制方式区分：
 // 每项依次是 左边界 / 固定 / 右边界 / 预发声 / 交叉
 private val CV_PARAMS: Map<String, String> = mapOf(
     "CVVC" to "1,3,1.5,1,2", "VCV" to "1,3,1.5,1,2",
     "CV" to "1,3,1,1,2", "ARPASING" to "1,3,1.5,1,2",
-    "CVV" to "1,3,1,1,2",
+    "CVV" to "1,3,1,1,2", "PHONE" to "40,5,1,60,10",
 )
 private val VC_PARAMS: Map<String, String> = mapOf(
     "CVVC" to "3,0,2,1,2", "VCV" to "3,3,1.5,1,3,3",
@@ -54,7 +57,7 @@ private val VC_PARAMS: Map<String, String> = mapOf(
 private val VV_PARAMS: Map<String, String> = mapOf(
     "CVVC" to "3,3,1.5,1,3", "VCV" to "0,0,0,0,0",
     "CV" to "0,0,0,0,0", "ARPASING" to "3,3,1.5,1,1.5",
-    "CVV" to "0,0,0,0,0",
+    "CVV" to "0,0,0,0,0", "PHONE" to "30,20,0.5,0,30",
 )
 
 @Composable
@@ -66,6 +69,9 @@ fun OtoScreen(vm: AppViewModel) {
     var vcParams by remember { mutableStateOf(VC_PARAMS["CVVC"]!!) }
     var vvParams by remember { mutableStateOf(VV_PARAMS["CVVC"]!!) }
     var cutoffFromEnd by remember { mutableStateOf(false) }
+    // 基频率表走 RMVPE，很慢，所以做成独立开关
+    var makeFrq by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
     // 官方公式下句首「- X」的播放区间够不到第一条 VCV 条目，会留空档；
     // 打开这盏才按非官方推导把它延伸过去。
     var extendInitialCutoff by remember { mutableStateOf(false) }
@@ -91,7 +97,7 @@ fun OtoScreen(vm: AppViewModel) {
     ScreenColumn {
         Text(L.s("④ 生成 oto.ini"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
-            L.s("读取 json 里的音素边界，按 CV / CVVC / VCV / ARPAsing 规则生成 oto.ini。"),
+            L.s("读取 json 里的音素边界，按 CV / CVVC / VCV / ARPAsing / C+V 规则生成 oto.ini。"),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -147,7 +153,8 @@ fun OtoScreen(vm: AppViewModel) {
                     "CVVC" to "CVVC",
                     "VCV" to "VCV",
                     "CVV" to "CVV",
-                    "ARPASING" to "ARPAsing"
+                    "ARPASING" to "ARPAsing",
+                    "PHONE" to "C+V"
                 ),
                 selected = mode,
                 onSelect = { m ->
@@ -165,12 +172,23 @@ fun OtoScreen(vm: AppViewModel) {
         }
 
         SectionCard(L.s("oto 参数")) {
-            Text(L.s("CV 参数（左边界 / 固定 / 右边界 / 预发声 / 交叉）"), fontSize = 11.sp)
-            TextFieldSimple("CV", cvParams, { cvParams = it })
-            Text(L.s("VC 参数（左边界 / 固定 / 右边界 / 预发声 / 交叉）"), fontSize = 11.sp)
-            TextFieldSimple("VC", vcParams, { vcParams = it })
-            Text(L.s("VV 参数（左边界 / 固定 / 右边界 / 预发声 / 交叉）"), fontSize = 11.sp)
-            TextFieldSimple("VV", vvParams, { vvParams = it })
+            if (mode == "PHONE") {
+                // C+V 是逐音素条目，五条线没法用「中点比例」表达，改用毫秒偏移
+                Text(
+                    L.s("C+V 模式：CV 框填辅音、VV 框填元音，VC 框不用。每组五个数依次是" +
+                        "前留(ms) / 预发声偏移(ms) / 重叠比 / 固定长度(ms) / 尾巴(ms)。"),
+                    fontSize = 11.sp
+                )
+                TextFieldSimple("CV（辅音）", cvParams, { cvParams = it })
+                TextFieldSimple("VV（元音）", vvParams, { vvParams = it })
+            } else {
+                Text(L.s("CV 参数（左边界 / 固定 / 右边界 / 预发声 / 交叉）"), fontSize = 11.sp)
+                TextFieldSimple("CV", cvParams, { cvParams = it })
+                Text(L.s("VC 参数（左边界 / 固定 / 右边界 / 预发声 / 交叉）"), fontSize = 11.sp)
+                TextFieldSimple("VC", vcParams, { vcParams = it })
+                Text(L.s("VV 参数（左边界 / 固定 / 右边界 / 预发声 / 交叉）"), fontSize = 11.sp)
+                TextFieldSimple("VV", vvParams, { vvParams = it })
+            }
             SwitchRow(
                 L.s("cutoff 按文件末尾算"),
                 L.s("关：按 UTAU 规范从 offset 起算；开：从音频末尾倒算。") +
@@ -211,6 +229,12 @@ fun OtoScreen(vm: AppViewModel) {
                 TextFieldSimple("cover", cover, { cover = it }, "n")
             }
             TextFieldSimple(L.s("pitch 后缀"), pitch, { pitch = it }, L.s("如 C4"))
+            SwitchRow(
+                L.s("生成 frq 基频率表（RMVPE）"),
+                L.s("开启后会逐个 wav 做音高分析并写 .frq。这一步比只出 oto 慢很多，" +
+                    "几十个文件可能要几分钟到十几分钟，请耐心等待。"),
+                makeFrq
+            ) { makeFrq = it }
         }
 
         Spacer(Modifier.height(4.dp))
@@ -238,6 +262,10 @@ fun OtoScreen(vm: AppViewModel) {
                         put("encoding", encoding)
                         put("cover", cover)
                         put("pitch", pitch)
+                        put("make_frq", makeFrq)
+                        if (makeFrq) {
+                            put("rmvpe_model", File(ModelManager.modelsRoot(ctx), "rmvpe/rmvpe.onnx").absolutePath)
+                        }
                     },
                     L.s("生成 oto.ini")
                 )

@@ -1,6 +1,11 @@
 import json
 import re
 
+# ARPAsing 的静音音素除 UTAU 惯用的 R/SP/AP 外，录音清单里普遍写作 sil。
+# 之前只按用户传进来的 ignore 判边界，默认 ignore=R,SP,AP 时 sil 不被识别：
+# 句首那条「- X」生成不出来，句末还会输出「k sil」而不是规范要求的「k -」。
+_BND = ("R", "SP", "AP", "sil", "-")
+
 
 #将json转换为oto
 #文件名=别名,左边界,固定,右边界（负值）,预发声,交叉
@@ -26,6 +31,11 @@ def presamp_read(presamps_path):
         v = vowel.split('=')[0]
         for v0 in vowel.split('=')[2].split(','):
             V[v0]=v
+            # ARPAbet 习惯写大写（AH、K、IH），而英文 presamp 表普遍是小写（ah、k、ih）。
+            # 对齐模型输出的音素大小写不由这里决定，两种写法都登记一份，
+            # 否则整份表一条都匹配不上、cv/vc 两个 ini 全空。
+            V.setdefault(v0.lower(), v)
+            V.setdefault(v0.upper(), v)
     # print(V)
     return V
 
@@ -45,7 +55,7 @@ def json2cvoto(cv_data,sum,ignore):
             key, cont = sorted_phones[i]
             key1, cont2 = sorted_phones[i + 1]
             # -CV规则
-            if cont['text'] in ignore and cont2['text'] not in ignore:
+            if (str(cont['text']) in ignore or str(cont['text']) in _BND) and not (str(cont2['text']) in ignore or str(cont2['text']) in _BND):
                 phone_name = '- '+cont2['text']
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
                 left = float(cont2['xmin'])*1000/sum[0]
@@ -96,13 +106,16 @@ def json2VCVoto(cv_data,CV_V,sum,ignore):
         while i < len(sorted_phones)-1:
             key, cont = sorted_phones[i]
             key1, cont1 = sorted_phones[i + 1]
-            if cont['text'] in ignore:
+            if str(cont['text']) in ignore or str(cont['text']) in _BND:
                 i+=1
                 continue
-            elif cont1['text'] in ignore and cont['text'] in CV_V:
-                if cont1['text'] == 'R' or cont1['text'] == 'SP':
+            elif (str(cont1['text']) in ignore or str(cont1['text']) in _BND) and cont['text'] in CV_V:
+                if str(cont1['text']) in _BND:
                     cont1['text'] = '-'
-                phone_name = CV_V[cont['text']] + ' ' + cont1['text']
+                # ARPAsing 的别名就是音素本身拼接，表只用来判断「是不是合法音素」，
+                # 不能再取表里的值：那会把大写音素（AH）悄悄改写成表里的小写（ah），
+                # 与 UST 里写的音素对不上。
+                phone_name = str(cont['text']) + ' ' + str(cont1['text'])
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
                 left = float(cont["middle"]) * 1000 + ((float(cont['xmax']) - float(cont['middle'])) * 1000 / sum[0])
                 # 右线占比
@@ -118,9 +131,12 @@ def json2VCVoto(cv_data,CV_V,sum,ignore):
                 # print(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
                 oto.append(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
             elif  cont['text'] in CV_V and cont1['text'] in CV_V:
-                if cont1['text'] == 'R' or cont1['text'] == 'SP':
+                if str(cont1['text']) in _BND:
                     cont1['text'] = '-'
-                phone_name = CV_V[cont['text']] + ' ' + cont1['text']
+                # ARPAsing 的别名就是音素本身拼接，表只用来判断「是不是合法音素」，
+                # 不能再取表里的值：那会把大写音素（AH）悄悄改写成表里的小写（ah），
+                # 与 UST 里写的音素对不上。
+                phone_name = str(cont['text']) + ' ' + str(cont1['text'])
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
                 left = float(cont["middle"]) * 1000 + ((float(cont['xmax']) - float(cont['middle'])) * 1000 / sum[0])
                 # 右线占比

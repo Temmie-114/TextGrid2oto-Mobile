@@ -20,7 +20,10 @@ def presamp_read(presamps_path):
         # print(vowels)
         # 提取 [CONSONANT] 部分
         consonant_match = re.search(r'\[CONSONANT\](.*?)\[', ini_text, re.DOTALL)
-        consonants = consonant_match.group(1).strip()
+        # 有些 presamp.ini 只有 [VOWEL]（项目自带的「樗儿式中文VCV」、英文 ARPASing 表都是），
+        # 之前这里直接 group(1) 会在选到这类表时抛 AttributeError，整次生成失败。
+        # 缺段时给空表，让依赖辅音的分支自然不触发，而不是让整个任务崩掉。
+        consonants = consonant_match.group(1).strip() if consonant_match else ''
         # print(consonants)
     for vowel in vowels.split('\n'):
         if vowel == '':
@@ -39,7 +42,7 @@ def presamp_read(presamps_path):
     return CV_V, CV_C,V_V
 
 #VV_CV_VC
-def json2cvoto(cv_data,sum,ignore):
+def json2cvoto(cv_data,sum,ignore,CV_C=None):
     oto = []
     for audio_file, data in cv_data.items():
         autio_name = audio_file
@@ -74,7 +77,7 @@ def json2cvoto(cv_data,sum,ignore):
                 left = float(cont2['xmin'])*1000/sum[0]
 
                 Prevoice = (float(cont2['middle']) - float(cont2['xmin'])) * 1000
-                if sum[3] != 1 or sum[3] != '1':
+                if float(sum[3]) != 1:
                     Prevoice2 = Prevoice / sum[3]
                     left += Prevoice - Prevoice2
                     Prevoice = Prevoice2
@@ -92,6 +95,20 @@ def json2cvoto(cv_data,sum,ignore):
                     cross = float(Prevoice) / sum[4]
                 i+=2
                 oto.append(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
+                # 元音音节（不在 [CONSONANT] 音节表里的）在句首只会得到「- あ」。
+                # OpenUtau 的 CVVC 音素器对元音音符是按裸别名（あ/い/う/え/お）查的，
+                # 于是整句出现在句首的元音都会报缺别名。这里对同一段录音补一条裸条目，
+                # 参数完全相同，只换别名；同一 wav 多个别名在 UTAU/OpenUtau 里是允许的。
+                # 同一文件后面若还有同名音节，那条词中条目会产出同样的裸别名，
+                # 两行同名会互相覆盖（UTAU 取后一行），此时不再补，避免丢参数。
+                _dup = any(str(x[1].get('text')) == str(cont2['text']) for x in sorted_phones[i:])
+                if CV_C is not None and str(cont2['text']) not in CV_C and not _dup:
+                    oto.append(f"{autio_name}.wav={cont2['text']},{left},{fixed},-{right},{Prevoice},{cross}\n")
+                continue
+            # 末尾的边界音素（R/SP/AP）不能当 CV 输出：之前会生成一条别名就是 "R" 的
+            # 死条目，五个参数还取自静音段。这里直接跳过。
+            if str(cont['text']) in _BND or cont['text'] in ignore:
+                i += 1
                 continue
             #CV规则
             phone_name =cont['text']
@@ -99,7 +116,7 @@ def json2cvoto(cv_data,sum,ignore):
             left = float(cont['xmin']) * 1000 / sum[0]
 
             Prevoice = (float(cont['middle'])- float(cont['xmin'])) * 1000
-            if sum[3] != 1 or sum[3] != '1':
+            if float(sum[3]) != 1:
                 Prevoice2 = Prevoice / sum[3]
                 left += Prevoice - Prevoice2
                 Prevoice = Prevoice2
@@ -269,17 +286,20 @@ def run(presamp_path,word_phone_json,wav_path,cv_sum,vc_sum,vv_sum,ignore):
     #     vc_data = json.load(f)
     with open(word_phone_json, 'r', encoding='utf-8') as f:
         cv_data = json.load(f)
-    oto = json2cvoto(cv_data,cv_sum,ignore)
+    oto = json2cvoto(cv_data,cv_sum,ignore,CV_C)
     # print(oto)
     with open(wav_path+'/cv_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
             f.write(i)
         print('cv_oto.ini生成成功')
-    oto = json2coto(cv_data,cv_sum,ignore,CV_C)
-    with open(wav_path + '/cv_oto.ini', 'a', encoding='utf-8') as f:
-        for i in oto:
-            f.write(i)
-        print('-c生成成功')
+    # 语头「- CV」只保留 json2cvoto 里那一套（原样音节，如「- か」「- ba」）。
+    # json2coto 那段会把同一批语头再写成辅音名（「- k」「- b」），与音节形式并存：
+    # 音素器只会认其中一种，另一种永远是死条目。这里不再追加。
+    # oto = json2coto(cv_data,cv_sum,ignore,CV_C)
+    # with open(wav_path + '/cv_oto.ini', 'a', encoding='utf-8') as f:
+    #     for i in oto:
+    #         f.write(i)
+    #     print('-c生成成功')
     oto = json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore)
     # print(oto)
     with open(wav_path+'/vc_oto.ini', 'w', encoding='utf-8') as f:

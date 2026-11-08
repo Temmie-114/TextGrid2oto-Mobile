@@ -1,6 +1,7 @@
 package com.tg2oto.mobile.core
 
 import android.content.Context
+import android.content.res.AssetManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -25,6 +26,19 @@ data class ModelEntry(
 object ModelManager {
 
     private const val BUILTIN_MARKER = ".builtin_v1"
+
+    /** 递归复制 assets 里的一棵目录树到内部存储。 */
+    private fun copyAssetTree(assets: AssetManager, assetPath: String, target: File) {
+        val children = assets.list(assetPath) ?: return
+        if (children.isEmpty()) {
+            target.parentFile?.mkdirs()
+            assets.open(assetPath).use { input ->
+                target.outputStream().use { out -> input.copyTo(out) }
+            }
+            return
+        }
+        for (c in children) copyAssetTree(assets, "$assetPath/$c", File(target, c))
+    }
     private const val META_FILE = ".tg2oto_precision"
 
     fun modelsRoot(context: Context): File =
@@ -40,11 +54,17 @@ object ModelManager {
     ): Boolean = withContext(Dispatchers.IO) {
         val root = modelsRoot(context)
         val marker = File(root, BUILTIN_MARKER)
+        val assets = context.assets
         if (marker.exists()) {
+            // 新版本可能新增内置模型目录（例如 RMVPE），只补装缺失的那一份，
+            // 避免让老用户把几百 MB 的老模型再复制一遍。
+            val rmvpe = File(root, "rmvpe/rmvpe.onnx")
+            if (!rmvpe.exists()) {
+                copyAssetTree(assets, "models/rmvpe", File(root, "rmvpe"))
+            }
             onProgress(1f, "内置模型已就绪")
             return@withContext true
         }
-        val assets = context.assets
         val dirs = assets.list("models") ?: emptyArray()
         var total = 0L
         val files = ArrayList<Triple<String, String, Long>>()

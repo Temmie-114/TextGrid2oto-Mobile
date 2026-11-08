@@ -202,7 +202,7 @@ object L {
         "删除模型？" to "Delete model?",
         "取消" to "Cancel",
         "④ 生成 oto.ini" to "④ Generate oto.ini",
-        "读取 json 里的音素边界，按 CV / CVVC / VCV / ARPAsing 规则生成 oto.ini。" to "Reads phoneme boundaries from json and writes oto.ini following CV / CVVC / VCV / ARPAsing rules.",
+        "读取 json 里的音素边界，按 CV / CVVC / VCV / ARPAsing / C+V 规则生成 oto.ini。" to "Reads phoneme boundaries from json and writes oto.ini following CV / CVVC / VCV / ARPAsing / C+V rules.",
         "需要该目录下已有 json/word_phone.json（由上一步生成）。" to "Requires json/word_phone.json in this folder, produced by the previous step.",
         "选择 presamp 规则" to "Choose presamp rules",
         "内置 presamp 尚未加载" to "Built-in presamp is not loaded yet",

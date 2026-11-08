@@ -344,14 +344,30 @@ repository (xiaobaijunya/TextGrid2oto, GPL-3.0), converted into
   `oto.ini` semantics and resampler behaviour. No code is copied.
 - [openvpi/DiffSinger](https://github.com/openvpi/DiffSinger) — dataset format
   reference only.
-- [openvpi/GAME](https://github.com/openvpi/GAME) — the `inference/game_infer.py`
-  module originates from the upstream TextGrid2oto project (GPL-3.0) and is
-  therefore covered by this project's own GPL-3.0 license; it is an ONNX port of
-  GAME's official `infer.py align`. **No GAME model weights are bundled or
-  redistributed** — users download them from the GAME releases and import them
-  locally. Fetch the model's own license terms from that repository before
-  redistributing the weights.
+- [openvpi/GAME](https://github.com/openvpi/GAME) — **MIT License**. The
+  `inference/game_infer.py` module is an ONNX port of GAME's official `infer.py
+  align`. As a derivative of MIT-licensed code it is distributed under this
+  project's GPL-3.0, which is permitted because MIT is GPL-compatible; the
+  original MIT terms remain acknowledged here. **No GAME model weights are
+  bundled or redistributed** — users download them from the GAME releases and
+  import them locally.
 - [Chaquopy](https://chaquo.com/chaquopy/) — Android Python runtime, consumed as
   a Gradle dependency under its own license.
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) — inference runtime,
   consumed as a Gradle dependency under its own license (MIT).
+
+---
+
+## 8. RMVPE pitch model
+
+- Model weights: [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI)
+  — `rmvpe.onnx`, **MIT License**. Redistributed with this release at
+  `assets/models/rmvpe/rmvpe.onnx`, converted to fp16 (numerically equivalent
+  for f0 estimation: 440 Hz test tone reads 439.4 → 439.5 Hz).
+- Inference frontend (mel filter bank / STFT / cents-to-Hz post-processing):
+  ported from [rmvpe-onnx](https://pypi.org/project/rmvpe-onnx/) 0.2.3
+  (MIT, Copyright (c) 2023 liujing04, 源文雨, Ftps) and
+  [RVC-Project/Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
+  (MIT). Reimplemented with NumPy + ONNX Runtime only; no librosa or scipy.
+- The `.frq` writer follows the `FREQ0003` layout documented by
+  [PyRwu](https://github.com/delta-kimigatame/PyRwu) (MIT).

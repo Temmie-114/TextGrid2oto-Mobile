@@ -32,7 +32,7 @@ Modification statements are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md
 | ① Annotate | `lab_generate` | Builds a `.lab` from each wav filename (pinyin / kana / romaji); supports delimiter splitting, auto `SP`, dropping `R`, index-table mode |
 | ② Align | `inference/onnx_infer.py`, `inference/tifa_infer.py` | HubertFA / TIFA forced alignment, writes a TextGrid with `words` and `phones` tiers |
 | ③ JSON | `textgrid2json/` | TextGrid → `ds_phone.json` → filtered by dictionary → rebuilt `word_phone.json` |
-| ④ oto | `json2oto/` | Generates CV / CVVC / VCV / ARPAsing `oto.ini`; template, encoding, repeat count, offsets |
+| ④ oto | `json2oto/` | Generates CV / CVVC / VCV / ARPAsing / C+V `oto.ini`; template, encoding, repeat count, offsets; optional `.frq` pitch tables via RMVPE |
 | Tools | `build_diffdataset/` etc. | Model manager, dictionaries, `ph_num`, CSV↔TextGrid, words→lab, loudness check, strip `SP`, DiffSinger dataset, GAME MIDI annotation |
 
 - **Sidebar**: the four workflow tabs, resources (models / dictionaries), tools, settings (appearance, inference backend, interface language), about & licenses.
@@ -98,8 +98,9 @@ main process (com.tg2oto.mobile)          :infer process
 |---|---|---|---|
 | HubertFA `1218_hfa_model` | `wolfgitpr/HubertFA` v0.0.7 | 396 MB (fp32) | **199 MB (weight-level fp16)** |
 | TIFA `TIFA-1.0-ST` | TIFA official weights (`openvpi/TIFA`) | 160 MB (fp32) | **78 MB (weight-level fp16)** |
+| RMVPE pitch model | `lj1995/VoiceConversionWebUI` (`rmvpe.onnx`) | 362 MB (fp32) | **181 MB (whole-graph fp16)** |
 
-`assets/models/` totals ~277 MB, the APK is ~344 MB, and an install takes ~600 MB (the first launch copies them into `filesDir`).
+`assets/models/` totals ~458 MB (277 MB aligners + 181 MB RMVPE), the APK is ~542 MB, and an install takes ~1 GB (the first launch copies them into `filesDir`). RMVPE is only used when "Generate frq pitch table" is switched on; it is a whole-graph fp16 conversion (not weight-level like the aligners) and still runs on the CPU EP — measured 0.11 s per second of audio on x86, roughly 439.5 Hz for a 440 Hz test tone.
 
 ### On fp16
 
@@ -186,7 +187,10 @@ Android has no unified NPU interface, and this version **does not wire up vendor
 3. **Alignment values differ from upstream by ~1e-4 s**, from thread count and float accumulation order. Expected.
 4. Devices with less than 4 GB RAM may struggle with HubertFA (roughly 400 MB resident).
 5. **TIFA and HubertFA can disagree on where an initial consonant belongs.** TIFA is a deterministic decoder. HubertFA exposes `pad_times` (1/3/5): it runs the audio several times, each with a different amount of silence padded at both ends (`pad_length * i / pad_times`), then merges and de-duplicates the results — the inputs really do differ, so 3 or 5 can change the alignment. The app defaults to 1 (a single pass); upstream's desktop default is 3. When the initial consonant is swallowed by the preceding `R`/`SP` span, use "Initial offset prefetch" rather than relying on more passes.
-6. **Scope of oto.ini verification**: VCV alias coverage was checked over 840 alias forms, all present; initial `- X` entries are 202/202 complete once the boundary test includes `R`/`SP`/`AP`/`-`/`sil`. Parameter semantics were only verified under the OpenUtau Classic renderer (negative cutoff measured from `offset`); other renderers were not tested.
+6. **frq generation is slow and file-counted.** RMVPE runs one whole-file pass per wav, and the progress bar advances per file, not by audio duration — one very long file will look stuck. It was measured on x86 only; ARM timings on device are unverified.
+7. **C+V mode uses millisecond offsets, not the midpoint proportions of the other modes.** An aligner only reports phoneme boundaries, it does not say which part is stable, so the five lines are expressed as fixed millisecond offsets relative to the phoneme start/end. Values that suit one voicebank will need retuning for another.
+8. **The five oto fields are still in the upstream order, not the UTAU standard.** Measured output looks like `500, 333, -416, 250, 125`: overlap comes out negative and cutoff positive, which is enough to make a whole entry unusable. This is a known open issue and affects every mode.
+9. **Scope of oto.ini verification**: VCV alias coverage was checked over 840 alias forms, all present; initial `- X` entries are 202/202 complete once the boundary test includes `R`/`SP`/`AP`/`-`/`sil`. Parameter semantics were only verified under the OpenUtau Classic renderer (negative cutoff measured from `offset`); other renderers were not tested. **The five-field order is still the upstream order and has not been re-ordered to the UTAU standard** — overlap can come out negative and cutoff positive, which is a known open issue.
 
 ---
 
@@ -195,7 +199,7 @@ Android has no unified NPU interface, and this version **does not wire up vendor
 | Kind | Detail |
 |---|---|
 | Reused (adapted for mobile) | `lab_generate/`, `textgrid2json/`, `json2oto/`, `oto/`, `build_diffdataset/`, `inference/`, `presets/`, `dictionary/` |
-| Added | Compose MD3 UI and theming, isolated `:infer` process with crash dialog, Kotlin ONNX Runtime layer replacing Python `onnxruntime`, model / dictionary import, weight-level fp16 conversion script, CPU / GPU / NNAPI selection, ring color picker, English localisation, open-source license page |
+| Added | C+V per-phoneme oto mode (`json2phone_oto.py`), RMVPE `.frq` generation (`rmvpe_infer.py` + `frq_gen.py`, pure-NumPy frontend, no librosa), Compose MD3 UI and theming, isolated `:infer` process with crash dialog, Kotlin ONNX Runtime layer replacing Python `onnxruntime`, model / dictionary import, weight-level fp16 conversion script, CPU / GPU / NNAPI selection, ring color picker, English localisation, open-source license page |
 | Replaced | `onnxruntime` → `ort_shim` + Kotlin `OrtEngine`; `soundfile` → `soundfile_shim`; `scipy.signal.resample_poly` → `audio_io.resample` (error ≤ 6.2e-4); `librosa` dropped |
 | Removed | wxPython GUI (`GUI.py`), `oto/oto_param_panel.py` |
 | Fixed | Merge-time dedupe keyed by `(wav, alias)` instead of alias alone (1410 lines were collapsing to 979); mid-file silent spans breaking adjacent pairs; CVV entry parameters missing; missing initial entries (boundary test now includes `R`/`SP`/`AP`/`-`/`sil`); initial fallback inside the embedded `json2cvoto` of `json2VCV_oto` |

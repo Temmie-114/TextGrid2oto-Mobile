@@ -30,7 +30,7 @@ MIT 与 Apache-2.0 均单向兼容 GPLv3，因此整体以 GPL-3.0 发布不冲�
 | ① 标注 | `lab_generate` | 按 wav 文件名（拼音 / 假名 / 罗马音）生成同名 `.lab`；支持分隔符切分、自动补 `SP`、去 `R`、索引表模式 |
 | ② 对齐 | `inference/onnx_infer.py`、`inference/tifa_infer.py` | HubertFA / TIFA 强制对齐，输出含 `words` + `phones` 两层的 TextGrid |
 | ③ JSON | `textgrid2json/` | TextGrid → `ds_phone.json` → 按字典过滤 → 重建 `word_phone.json` |
-| ④ oto | `json2oto/` | 生成 CV / CVVC / VCV / ARPAsing 四种 `oto.ini`；支持模板、编码、重复次数、偏移 |
+| ④ oto | `json2oto/` | 生成 CV / CVVC / VCV / ARPAsing / C+V 五种 `oto.ini`；支持模板、编码、重复次数、偏移；可选 RMVPE 生成 `.frq` 基频率表 |
 | 更多 | `build_diffdataset/` 等 | 模型管理、字典库、`ph_num`、CSV↔TextGrid、words→lab、音量检测、删 `SP`、DiffSinger 数据集、GAME MIDI 标注 |
 
 - **侧边栏**：工作流四页、资源管理（模型 / 字典）、小工具、设置（外观与主题 / 推理后端）、关于与许可。
@@ -101,8 +101,9 @@ Android 上没有 onnxruntime 的 Python wheel，librosa 又拖着 numba/scipy�
 |---|---|---|---|
 | HubertFA `1218_hfa_model` | `wolfgitpr/HubertFA` v0.0.7 | 396 MB (fp32) | **199 MB（权重 fp16）** |
 | TIFA `TIFA-1.0-ST` | TIFA 官方权重（`openvpi/TIFA`） | 160 MB (fp32) | **78 MB（权重 fp16）** |
+| RMVPE 音高模型 | `lj1995/VoiceConversionWebUI`（`rmvpe.onnx`） | 362 MB (fp32) | **181 MB（整图 fp16）** |
 
-`assets/models/` 合计约 277 MB，APK 约 344 MB，安装后占用约 600 MB（首次启动会复制一份到 `filesDir`）。
+`assets/models/` 合计约 458 MB（对齐模型 277 MB + RMVPE 181 MB），APK 约 542 MB，安装后占用约 1 GB（首次启动会复制一份到 `filesDir`）。RMVPE 只在打开「生成 frq 基频率表」时才会加载；它是整图 fp16 转换（区别于对齐模型的权重级 fp16），在 CPU EP 上实测正常——x86 上每秒音频约 0.13 秒，440 Hz 测试音读出 439.5 Hz。
 
 ### 关于 fp16
 
@@ -192,12 +193,16 @@ App 直接读写 `/storage/emulated/0/...` 下的录音目录（与桌面版一�
 
 ## 7. 已知限制
 
-1. **对齐模型只支持 HubertFA 与 TIFA**：其他类型的对齐模型既不在内置里，也不会被识别。GAME 已支持，但只用于 MIDI 标注（见 §3），它不是对齐器，权重也不内置。
-2. **AP 标注流程（`ap_infer.py`）未接进 UI**。
-3. **对齐数值**与原版存在 1e-4 秒级差异，来自线程数 / 浮点累加顺序，属正常范围。
-4. 4 GB 以下内存的老机型跑 HubertFA 可能吃力（模型常驻约 400 MB）。
-5. **TIFA / HubertFA 对「句首辅音归属」的判断可能不同**：TIFA 是确定性解码；HubertFA 有 `pad_times`（1/3/5）——它会把同一段音频按不同的首尾填充长度（`pad_length * i / pad_times`）各跑一遍，再合并去重，输入确实在变，所以 3 或 5 会改变对齐结果。App 默认 1 次（单轮），电脑端默认 3 次。句首辅音被前一段 `R`/`SP` 吞掉时，用「首音前探」补偿，而不是靠重跑。
-6. **oto.ini 的验证范围**：VCV 别名覆盖实测 840 种全有；句首 `- X` 在边界判定并入 `R`/`SP`/`AP`/`-`/`sil` 后 202/202 齐全。但参数语义只在 OpenUtau Classic 渲染下核对过（负 cutoff = 距 `offset` 的长度），其他渲染器未测。
+1. **frq 生成很慢，进度按文件数走。** RMVPE 对每个 wav 整段推理，进度条按文件个数前进、不按音频时长——目录里有一个特别长的文件时会看起来卡住。速度只在 x86 上测过，真机未验证。
+2. **C+V 模式用的是毫秒偏移，不是其他模式的「中点比例」。** 对齐器只给音素边界，不告诉哪一段稳定，所以五条线用相对音素起止的固定毫秒表达；一组参数适合某个声库，换声库要重调。
+
+3. **对齐模型只支持 HubertFA 与 TIFA**：其他类型的对齐模型既不在内置里，也不会被识别。GAME 已支持，但只用于 MIDI 标注（见 §3），它不是对齐器，权重也不内置。
+4. **AP 标注流程（`ap_infer.py`）未接进 UI**。
+5. **对齐数值**与原版存在 1e-4 秒级差异，来自线程数 / 浮点累加顺序，属正常范围。
+6. 4 GB 以下内存的老机型跑 HubertFA 可能吃力（模型常驻约 400 MB）。
+7. **TIFA / HubertFA 对「句首辅音归属」的判断可能不同**：TIFA 是确定性解码；HubertFA 有 `pad_times`（1/3/5）——它会把同一段音频按不同的首尾填充长度（`pad_length * i / pad_times`）各跑一遍，再合并去重，输入确实在变，所以 3 或 5 会改变对齐结果。App 默认 1 次（单轮），电脑端默认 3 次。句首辅音被前一段 `R`/`SP` 吞掉时，用「首音前探」补偿，而不是靠重跑。
+8. **oto.ini 五字段位序仍是上游顺序，尚未按 UTAU 标准重排**：实测输出形如 `500, 333, -416, 250, 125`，overlap 出负值、cutoff 出正值，任一都足以让整条失效。这是已知未修的问题，影响所有模式。
+9. **oto.ini 的验证范围**：VCV 别名覆盖实测 840 种全有；句首 `- X` 在边界判定并入 `R`/`SP`/`AP`/`-`/`sil` 后 202/202 齐全。但参数语义只在 OpenUtau Classic 渲染下核对过（负 cutoff = 距 `offset` 的长度），其他渲染器未测。
 
 ---
 
@@ -206,7 +211,7 @@ App 直接读写 `/storage/emulated/0/...` 下的录音目录（与桌面版一�
 | 类别 | 内容 |
 |---|---|
 | 复用（已适配移动端） | `lab_generate/`、`textgrid2json/`、`json2oto/`、`oto/`、`build_diffdataset/`、`inference/`、`presets/`、`dictionary/` |
-| 新增 | Compose MD3 界面与主题系统、`:infer` 独立推理进程与崩溃弹窗、Kotlin ONNX Runtime 执行层（替代 Python `onnxruntime`）、模型 / 字典导入管理、权重级 fp16 转换脚本、CPU / GPU / NNAPI 后端选择、圆环取色器、英文本地化与开源许可页 |
+| 新增 | C+V 逐音素 oto 模式（`json2phone_oto.py`）、RMVPE 生成 `.frq`（`rmvpe_infer.py` + `frq_gen.py`，纯 NumPy 前端，不引 librosa）、Compose MD3 界面与主题系统、`:infer` 独立推理进程与崩溃弹窗、Kotlin ONNX Runtime 执行层（替代 Python `onnxruntime`）、模型 / 字典导入管理、权重级 fp16 转换脚本、CPU / GPU / NNAPI 后端选择、圆环取色器、英文本地化与开源许可页 |
 | 替换 | `onnxruntime` → `ort_shim` + Kotlin `OrtEngine`；`soundfile` → `soundfile_shim`；`scipy.signal.resample_poly` → 自实现 `audio_io.resample`（误差 ≤ 6.2e-4）；不使用 `librosa` |
 | 移除 | wxPython 图形界面（`GUI.py`）、`oto/oto_param_panel.py` |
 | 修复 | 合并阶段按 `(wav, 别名)` 双键去重（原先只按别名，1410 行被砍到 979）；句中假静音切断相邻对；CVV 入口参数缺位；句首条目缺失（边界判定并入 `R`/`SP`/`AP`/`-`/`sil`）；`json2VCV_oto` 内嵌 `json2cvoto` 补句首兜底 |

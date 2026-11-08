@@ -32,7 +32,9 @@ def presamp_read(presamps_path):
         # print(vowels)
         # 提取 [CONSONANT] 部分
         consonant_match = re.search(r'\[CONSONANT\](.*?)\[', ini_text, re.DOTALL)
-        consonants = consonant_match.group(1).strip()
+        # 只有 [VOWEL] 的 presamp.ini（项目自带的「樗儿式中文VCV」、英文 ARPASing 表）
+        # 之前会在 group(1) 处抛 AttributeError 直接中断生成，这里给空表兜底。
+        consonants = consonant_match.group(1).strip() if consonant_match else ''
         # print(consonants)
     for vowel in vowels.split('\n'):
         if vowel == '':
@@ -78,7 +80,7 @@ def json2cvoto(cv_data,sum,ignore):
             left = float(contend['xmin']) * 1000 / sum[0]
 
             Prevoice = (float(contend['middle']) - float(contend['xmin'])) * 1000
-            if sum[3] != 1 or sum[3] != '1':
+            if float(sum[3]) != 1:
                 Prevoice2 = Prevoice / sum[3]
                 left += Prevoice - Prevoice2
                 Prevoice = Prevoice2
@@ -126,7 +128,7 @@ def json2cvoto(cv_data,sum,ignore):
                 left = float(cont2['xmin'])*1000/sum[0]
 
                 Prevoice = (float(cont2['middle']) - float(cont2['xmin'])) * 1000
-                if sum[3] != 1 or sum[3] != '1':
+                if float(sum[3]) != 1:
                     Prevoice2 = Prevoice / sum[3]
                     left += Prevoice - Prevoice2
                     Prevoice = Prevoice2
