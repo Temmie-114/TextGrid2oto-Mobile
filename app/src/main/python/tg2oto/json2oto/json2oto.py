@@ -168,7 +168,9 @@ def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
                 # print(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
                 oto.append(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
             elif cont1['text'] in V_V and cont['text'] in CV_V:
-                phone_name = CV_V[cont['text']] + ' ' + cont1['text']
+                # VV 也走 CV_V 映射，和下面的 VC 分支保持一致：后半个音素统一成罗马音
+                # （直接用 cont1['text'] 会保留假名，产生 a お 这种与 VC 两套规则的别名）
+                phone_name = CV_V[cont['text']] + ' ' + CV_V.get(str(cont1['text']), cont1['text'])
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
                 left = float(cont["middle"]) * 1000 + ((float(cont['xmax']) - float(cont['middle'])) * 1000 / vv_sum[0])
                 # 右线占比
