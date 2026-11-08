@@ -344,6 +344,13 @@ repository (xiaobaijunya/TextGrid2oto, GPL-3.0), converted into
   `oto.ini` semantics and resampler behaviour. No code is copied.
 - [openvpi/DiffSinger](https://github.com/openvpi/DiffSinger) — dataset format
   reference only.
+- [openvpi/GAME](https://github.com/openvpi/GAME) — the `inference/game_infer.py`
+  module originates from the upstream TextGrid2oto project (GPL-3.0) and is
+  therefore covered by this project's own GPL-3.0 license; it is an ONNX port of
+  GAME's official `infer.py align`. **No GAME model weights are bundled or
+  redistributed** — users download them from the GAME releases and import them
+  locally. Fetch the model's own license terms from that repository before
+  redistributing the weights.
 - [Chaquopy](https://chaquo.com/chaquopy/) — Android Python runtime, consumed as
   a Gradle dependency under its own license.
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) — inference runtime,

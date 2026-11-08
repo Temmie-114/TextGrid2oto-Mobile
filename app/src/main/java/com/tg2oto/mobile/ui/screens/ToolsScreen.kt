@@ -47,6 +47,7 @@ import com.tg2oto.mobile.core.SocInfo
 import com.tg2oto.mobile.core.ModelEntry
 import com.tg2oto.mobile.ui.AppViewModel
 import com.tg2oto.mobile.ui.components.FileField
+import com.tg2oto.mobile.ui.components.DropdownField
 import com.tg2oto.mobile.ui.components.FolderField
 import com.tg2oto.mobile.ui.components.RunBar
 import com.tg2oto.mobile.ui.components.ScreenColumn
@@ -131,6 +132,7 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit = {}) {
     val install by vm.installProgress.collectAsState()
     val dicts by vm.dicts.collectAsState()
     val settings by vm.settings.collectAsState()
+    val models by vm.models.collectAsState()
     val backendReport by vm.backendReport.collectAsState()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -157,6 +159,14 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit = {}) {
     var dsTg by remember { mutableStateOf("") }
     var dsOut by remember { mutableStateOf("") }
     var dsRecursive by remember { mutableStateOf(false) }
+    // GAME MIDI 标注
+    var gameCsv by remember { mutableStateOf("") }
+    var gameModelName by remember { mutableStateOf("") }
+    var gameLang by remember { mutableStateOf("") }
+    var gameChunk by remember { mutableStateOf("30") }
+    var gameWorkers by remember { mutableStateOf("1") }
+    var gameOverwrite by remember { mutableStateOf(true) }
+    val gameModels = (models).filter { it.type == "game" }
 
     val dirPicker = rememberFolderPicker { }
     var target by remember { mutableStateOf<((String) -> Unit)?>(null) }
@@ -333,6 +343,64 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit = {}) {
                 picker.launch(null)
             })
             SwitchRow(L.s("递归子文件夹"), null, dsRecursive) { dsRecursive = it }
+        }
+
+        ToolCard(
+            title = "GAME MIDI",
+            description = L.s("为 transcriptions.csv 生成音符标注 note_seq / note_dur / note_slur"),
+            running = running,
+            enabled = gameCsv.isNotBlank() && gameModels.isNotEmpty(),
+            onRun = {
+                val entry = gameModels.firstOrNull { it.name == gameModelName }
+                    ?: gameModels.firstOrNull()
+                if (entry != null) {
+                    vm.runJob(
+                        "game",
+                        JSONObject().apply {
+                            put("csv", gameCsv)
+                            put("model_dir", entry.dir.absolutePath)
+                            if (gameLang.isNotBlank()) put("language", gameLang)
+                            put("max_chunk_sec", gameChunk.toFloatOrNull() ?: 30f)
+                            put("workers", gameWorkers.toIntOrNull() ?: 1)
+                            put("overwrite", gameOverwrite)
+                        },
+                        "GAME MIDI"
+                    )
+                }
+            },
+            onCancel = vm::cancelJob
+        ) {
+            FileField("transcriptions.csv", gameCsv, { gameCsv = it }) { }
+            if (gameModels.isEmpty()) {
+                Text(
+                    L.s("还没有导入 GAME 模型：到「模型」页导入含 encoder / segmenter / estimator / dur2bd / bd2dur / config.json 的模型目录"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                DropdownField(
+                    label = L.s("GAME 模型"),
+                    value = gameModelName.ifBlank { gameModels.first().name },
+                    options = gameModels.map { it.name },
+                    onSelect = { gameModelName = it }
+                )
+                DropdownField(
+                    label = L.s("语言"),
+                    value = gameLang.ifBlank { L.s("自动") },
+                    options = listOf(L.s("自动"), "en", "ja", "yue", "zh"),
+                    onSelect = { gameLang = if (it == L.s("自动")) "" else it }
+                )
+                TextFieldSimple(
+                    L.s("最大分块（秒）"),
+                    gameChunk,
+                    { gameChunk = it },
+                    L.s("长音频按词边界切开推理，显存/内存不足时降到 8~16")
+                )
+                TextFieldSimple(L.s("并行条数"), gameWorkers, { gameWorkers = it }, L.s("1 = 串行"))
+                SwitchRow(L.s("覆盖已有标注"), L.s("覆盖 CSV 里已有的 note 列"), gameOverwrite) {
+                    gameOverwrite = it
+                }
+            }
         }
 
         Spacer(Modifier.height(70.dp))

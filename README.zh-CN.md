@@ -31,7 +31,7 @@ MIT 与 Apache-2.0 均单向兼容 GPLv3，因此整体以 GPL-3.0 发布不冲�
 | ② 对齐 | `inference/onnx_infer.py`、`inference/tifa_infer.py` | HubertFA / TIFA 强制对齐，输出含 `words` + `phones` 两层的 TextGrid |
 | ③ JSON | `textgrid2json/` | TextGrid → `ds_phone.json` → 按字典过滤 → 重建 `word_phone.json` |
 | ④ oto | `json2oto/` | 生成 CV / CVVC / VCV / ARPAsing 四种 `oto.ini`；支持模板、编码、重复次数、偏移 |
-| 更多 | `build_diffdataset/` 等 | 模型管理、字典库、`ph_num`、CSV↔TextGrid、words→lab、音量检测、删 `SP`、DiffSinger 数据集 |
+| 更多 | `build_diffdataset/` 等 | 模型管理、字典库、`ph_num`、CSV↔TextGrid、words→lab、音量检测、删 `SP`、DiffSinger 数据集、GAME MIDI 标注 |
 
 - **侧边栏**：工作流四页、资源管理（模型 / 字典）、小工具、设置（外观与主题 / 推理后端）、关于与许可。
 - **主题**：明暗三态（跟随系统 / 浅色 / 深色）、Android 12+ 动态取色、圆环取色器（外环选色相、内圈调饱和度，明暗由 Material 3 的 tone 生成，不随种子色变化）。
@@ -135,8 +135,11 @@ zip 内每个模型目录按「必需文件」判定能不能用：
 |---|---|
 | HubertFA | `model.onnx` + `vocab.json`（可选 `config.json`、各语言字典 `.txt`、`VERSION` = 5） |
 | TIFA | `model.onnx` + `spectrogram.onnx` + `vocabulary.json` |
+| GAME | `encoder.onnx` + `segmenter.onnx` + `estimator.onnx` + `dur2bd.onnx` + `bd2dur.onnx` + `config.json` |
 
-只支持这两类对齐模型。zip 名只是显示用的标签，不参与判定：认不出 `model.onnx` + 配套文件的目录会被跳过。
+HubertFA 和 TIFA 是两类对齐模型。GAME **不是对齐器**：它读取已经带 `ph_seq` / `ph_dur` / `ph_num` 的 `transcriptions.csv`，把 `note_seq` / `note_dur` / `note_slur`（MIDI 音符标注）写回 CSV，用于 DiffSinger 数据集打标。它的权重**不内置**，需从 [`openvpi/GAME` 的 releases](https://github.com/openvpi/GAME/releases) 自行下载后按 zip 导入；`config.json` 是必需文件，release 包里自带。音频按 `<csv 所在目录>/wavs/<name>.wav` 查找，**不支持 flac**（先转成 16bit PCM wav）。
+
+zip 名只是显示用的标签，不参与判定：认不出 `model.onnx` + 配套文件的目录会被跳过。
 
 **精度自动识别**：直接扫 ONNX protobuf（只读 dtype / dims，权重用 seek 跳过，200 MB 约 0.6 秒），判定 `fp32` / `fp16` / `int8`，结果缓存在模型目录，列表直接显示。
 
@@ -189,11 +192,11 @@ App 直接读写 `/storage/emulated/0/...` 下的录音目录（与桌面版一�
 
 ## 7. 已知限制
 
-1. **只支持 HubertFA 与 TIFA 两类对齐模型**：其他类型（包括 MIDI 标注用的模型）既不在内置里，也不会被识别，导入后不出现在列表。
+1. **对齐模型只支持 HubertFA 与 TIFA**：其他类型的对齐模型既不在内置里，也不会被识别。GAME 已支持，但只用于 MIDI 标注（见 §3），它不是对齐器，权重也不内置。
 2. **AP 标注流程（`ap_infer.py`）未接进 UI**。
 3. **对齐数值**与原版存在 1e-4 秒级差异，来自线程数 / 浮点累加顺序，属正常范围。
 4. 4 GB 以下内存的老机型跑 HubertFA 可能吃力（模型常驻约 400 MB）。
-5. **TIFA / HubertFA 对「句首辅音归属」的判断可能不同**：两者都是确定性 Viterbi 解码，不支持多次推理取最优（实测只调 `skip_penalty` 只影响「跳过哪一个」，不影响「必须跳过多少」）。句首辅音被前一段 `R`/`SP` 吞掉时，用「首音前探」补偿，而不是靠重跑。
+5. **TIFA / HubertFA 对「句首辅音归属」的判断可能不同**：TIFA 是确定性解码；HubertFA 有 `pad_times`（1/3/5）——它会把同一段音频按不同的首尾填充长度（`pad_length * i / pad_times`）各跑一遍，再合并去重，输入确实在变，所以 3 或 5 会改变对齐结果。App 默认 1 次（单轮），电脑端默认 3 次。句首辅音被前一段 `R`/`SP` 吞掉时，用「首音前探」补偿，而不是靠重跑。
 6. **oto.ini 的验证范围**：VCV 别名覆盖实测 840 种全有；句首 `- X` 在边界判定并入 `R`/`SP`/`AP`/`-`/`sil` 后 202/202 齐全。但参数语义只在 OpenUtau Classic 渲染下核对过（负 cutoff = 距 `offset` 的长度），其他渲染器未测。
 
 ---

@@ -791,6 +791,39 @@ def _job_build_dataset(p):
     )
 
 
+def _job_game(p):
+    from tg2oto.inference import game_infer
+
+    lang = p.get("language") or None
+    if lang in ("auto", "", "Unset"):
+        lang = None
+    csv_path = p["csv"]
+    model_dir = p["model_dir"]
+    log(f"GAME 模型目录：{model_dir}")
+    stats = game_infer.align_transcriptions(
+        csv_path,
+        model_dir,
+        language=lang,
+        device=p.get("device", "cpu"),
+        output_path=p.get("output") or None,
+        overwrite=bool(p.get("overwrite", True)),
+        use_wb=bool(p.get("use_wb", True)),
+        uv_vocab=p.get("uv_vocab") or None,
+        uv_word_cond=p.get("uv_word_cond", "lead"),
+        uv_note_cond=p.get("uv_note_cond", "predict"),
+        seg_threshold=float(p.get("seg_threshold", 0.2)),
+        seg_radius=float(p.get("seg_radius", 0.02)),
+        t0=float(p.get("t0", 0.0)),
+        nsteps=int(p.get("nsteps", 8)),
+        est_threshold=float(p.get("est_threshold", 0.2)),
+        max_chunk_sec=float(p.get("max_chunk_sec", 30.0)),
+        workers=int(p.get("workers", 1)),
+        progress_callback=log,
+        stop_event=_stop,
+    )
+    log(f"GAME 标注完成：{stats}")
+
+
 _HANDLERS = {
     "lab": _job_lab,
     "align": _job_align,
@@ -802,6 +835,7 @@ _HANDLERS = {
     "loudness": _job_loudness,
     "delsp": _job_delsp,
     "dataset": _job_build_dataset,
+    "game": _job_game,
 }
 
 

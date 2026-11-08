@@ -3,6 +3,8 @@ package com.tg2oto.mobile.ui.theme
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -17,18 +20,13 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import android.os.SystemClock
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -42,9 +40,8 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import com.tg2oto.mobile.ui.i18n.L
 
-// 取色器只负责色相与彩度，产出的 seed 明度固定在中调，
-// 具体明暗全部交给 M3 的 tone 派生。
-private const val SEED_VALUE = 0.62f
+private const val DEFAULT_VALUE = 0.62f
+private const val MIN_VALUE = 0.15f
 
 private fun hsvToColor(h: Float, s: Float, v: Float): Color {
     val c = v * s
@@ -77,10 +74,14 @@ private fun colorToHsv(color: Color): Triple<Float, Float, Float> {
 }
 
 /**
- * 圆环取色器：外环选色相，拖到内圈调饱和度，下面滑条调亮度。
+ * 圆环取色器：外环选色相，拖内圈调彩度，滑块调种子色明度。
  *
- * 拖动过程中只更新本地状态（Canvas 重绘），松手才回调 onColorChange。
- * 之前每次 move 都回调 → 写 DataStore → 主题重组整个 App，这才是卡顿主因。
+ * 交互要点：
+ * 1. 按下时一次性判定这次手势是"选色相"还是"调彩度"，整个手势只改一个参数。
+ *    早先按每一帧的半径判断，手指在内圈边界附近抖动会让色相与彩度反复抢焦点，
+ *    光标就在环上和中心圈之间来回跳。
+ * 2. 拖动过程只更新本地状态重绘 Canvas，不回调外部；松手才提交一次。
+ *    onColorChange / onColorCommit 会写 DataStore 并重组整套主题，逐帧回调必卡。
  */
 @Composable
 fun RingColorPicker(
@@ -90,36 +91,28 @@ fun RingColorPicker(
     modifier: Modifier = Modifier,
     size: Dp = 220.dp
 ) {
-    var hue by remember { mutableFloatStateOf(colorToHsv(color).first) }
-    var sat by remember { mutableFloatStateOf(colorToHsv(color).second) }
-    var dragging by remember { mutableStateOf(false) }
+    val init = remember { colorToHsv(color) }
+    val hueState = remember { mutableFloatStateOf(init.first) }
+    val satState = remember { mutableFloatStateOf(init.second) }
+    val valState = remember { mutableFloatStateOf(init.third.coerceAtLeast(MIN_VALUE)) }
+    val dragging = remember { mutableStateOf(false) }
 
-    // 色相环的渐变色只算一次
     val hueColors = remember { (0..360 step 30).map { hsvToColor(it.toFloat() % 360f, 1f, 1f) } }
+
+    fun current(): Color = hsvToColor(hueState.floatValue, satState.floatValue, valState.floatValue)
+
+    fun commit() {
+        (onColorCommit ?: onColorChange)(current())
+    }
 
     // 外部颜色变了（预设、撤销等）且当前没在拖动时，同步到本地
     LaunchedEffect(color) {
-        if (!dragging) {
+        if (!dragging.value) {
             val h = colorToHsv(color)
-            hue = h.first
-            sat = h.second
+            hueState.floatValue = h.first
+            satState.floatValue = h.second
+            valState.floatValue = h.third.coerceAtLeast(MIN_VALUE)
         }
-    }
-
-    // 拖动中实时生效：按 40ms 节流提交，避免每个指针事件都触发整棵树重组
-    var lastEmit by remember { mutableLongStateOf(0L) }
-
-    fun commit() {
-        lastEmit = SystemClock.uptimeMillis()
-        val c = hsvToColor(hue, sat, SEED_VALUE)
-        (onColorCommit ?: onColorChange)(c)
-    }
-
-    fun emitLive() {
-        val now = SystemClock.uptimeMillis()
-        if (now - lastEmit < 40L) return
-        lastEmit = now
-        onColorChange(hsvToColor(hue, sat, SEED_VALUE))
     }
 
     Column(modifier = modifier) {
@@ -133,38 +126,57 @@ fun RingColorPicker(
                 modifier = Modifier
                     .size(size)
                     .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: continue
-                                val outer = this@pointerInput.size.width / 2f
-                                val center = Offset(outer, this@pointerInput.size.height / 2f)
-                                if (change.pressed) {
-                                    dragging = true
-                                    val dx = change.position.x - center.x
-                                    val dy = change.position.y - center.y
+                        val halfW = this.size.width / 2f
+                        val halfH = this.size.height / 2f
+                        val center = Offset(halfW, halfH)
+                        val ringInner = halfW * 0.74f
+
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startRadius = hypot(
+                                down.position.x - center.x,
+                                down.position.y - center.y
+                            )
+                            // 只在按下瞬间定一次意图，之后整段手势不再切换
+                            val pickHue = startRadius >= ringInner
+                            dragging.value = true
+
+                            fun applyAt(p: Offset) {
+                                val dx = p.x - center.x
+                                val dy = p.y - center.y
+                                if (pickHue) {
+                                    var angle = Math.toDegrees(
+                                        atan2(dy.toDouble(), dx.toDouble())
+                                    ).toFloat()
+                                    if (angle < 0f) angle += 360f
+                                    hueState.floatValue = angle
+                                } else {
                                     val radius = hypot(dx, dy)
-                                    val ringInner = outer * 0.78f
-                                    if (radius >= ringInner) {
-                                        var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
-                                        if (angle < 0) angle += 360f
-                                        hue = angle
-                                        emitLive()
-                                    } else if (radius > 0f) {
-                                        sat = (radius / ringInner).coerceIn(0f, 1f)
-                                        emitLive()
-                                    }
-                                    change.consume()
-                                } else if (dragging) {
-                                    dragging = false
-                                    commit()
+                                    satState.floatValue = (radius / ringInner).coerceIn(0f, 1f)
                                 }
                             }
+
+                            applyAt(down.position)
+                            down.consume()
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                    ?: event.changes.firstOrNull()
+                                if (change == null || !change.pressed) break
+                                applyAt(change.position)
+                                change.consume()
+                            }
+
+                            dragging.value = false
+                            commit()
                         }
                     }
             ) {
                 val radius = this.size.width / 2f
                 val stroke = 34.dp.toPx()
+                val innerRadius = radius - stroke - 10.dp.toPx()
+
                 drawCircle(
                     brush = Brush.sweepGradient(hueColors),
                     radius = radius - stroke / 2f,
@@ -172,17 +184,68 @@ fun RingColorPicker(
                     style = Stroke(width = stroke)
                 )
                 drawCircle(
-                    color = hsvToColor(hue, sat, SEED_VALUE),
-                    radius = radius - stroke - 10.dp.toPx(),
+                    color = hsvToColor(hueState.floatValue, satState.floatValue, valState.floatValue),
+                    radius = innerRadius,
                     center = Offset(radius, radius)
                 )
-                val angleRad = Math.toRadians(hue.toDouble())
+
+                val angleRad = Math.toRadians(hueState.floatValue.toDouble())
                 val knobR = radius - stroke / 2f
-                val kx = radius + cos(angleRad).toFloat() * knobR
-                val ky = radius + sin(angleRad).toFloat() * knobR
-                drawCircle(color = Color.White, radius = 9.dp.toPx(), center = Offset(kx, ky))
-                drawCircle(color = hsvToColor(hue, 1f, 1f), radius = 6.dp.toPx(), center = Offset(kx, ky))
+                val hueX = radius + cos(angleRad).toFloat() * knobR
+                val hueY = radius + sin(angleRad).toFloat() * knobR
+                drawCircle(color = Color.White, radius = 9.dp.toPx(), center = Offset(hueX, hueY))
+                drawCircle(
+                    color = hsvToColor(hueState.floatValue, 1f, 1f),
+                    radius = 6.dp.toPx(),
+                    center = Offset(hueX, hueY)
+                )
+
+                // 彩度指示：中心圆上离圆心越远彩度越高
+                val satRadius = innerRadius * satState.floatValue
+                val satX = radius + cos(angleRad).toFloat() * satRadius
+                val satY = radius + sin(angleRad).toFloat() * satRadius
+                drawCircle(color = Color.White, radius = 7.dp.toPx(), center = Offset(satX, satY))
+                drawCircle(
+                    color = hsvToColor(hueState.floatValue, satState.floatValue, valState.floatValue),
+                    radius = 5.dp.toPx(),
+                    center = Offset(satX, satY)
+                )
             }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                L.s("明度"),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Slider(
+                value = valState.floatValue,
+                onValueChange = {
+                    valState.floatValue = it
+                    dragging.value = true
+                },
+                onValueChangeFinished = {
+                    dragging.value = false
+                    commit()
+                },
+                valueRange = MIN_VALUE..1f,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(hsvToColor(hueState.floatValue, satState.floatValue, valState.floatValue))
+            )
         }
 
         Row(
@@ -211,8 +274,9 @@ fun RingColorPicker(
                             .size(if (selected) 34.dp else 28.dp)
                             .clickable {
                                 val h = colorToHsv(preset)
-                                hue = h.first
-                                sat = h.second
+                                hueState.floatValue = h.first
+                                satState.floatValue = h.second
+                                valState.floatValue = h.third.coerceAtLeast(MIN_VALUE)
                                 (onColorCommit ?: onColorChange)(preset)
                             }
                     )
@@ -221,7 +285,7 @@ fun RingColorPicker(
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            L.s("拖外环选色相，拖内圈调饱和度；明暗由 M3 按 tone 生成，不随种子色变化"),
+            L.s("拖外环选色相，拖内圈调彩度，滑块调明度；界面明暗由 M3 按 tone 生成"),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

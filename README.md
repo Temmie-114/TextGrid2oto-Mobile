@@ -33,7 +33,7 @@ Modification statements are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md
 | ② Align | `inference/onnx_infer.py`, `inference/tifa_infer.py` | HubertFA / TIFA forced alignment, writes a TextGrid with `words` and `phones` tiers |
 | ③ JSON | `textgrid2json/` | TextGrid → `ds_phone.json` → filtered by dictionary → rebuilt `word_phone.json` |
 | ④ oto | `json2oto/` | Generates CV / CVVC / VCV / ARPAsing `oto.ini`; template, encoding, repeat count, offsets |
-| Tools | `build_diffdataset/` etc. | Model manager, dictionaries, `ph_num`, CSV↔TextGrid, words→lab, loudness check, strip `SP`, DiffSinger dataset |
+| Tools | `build_diffdataset/` etc. | Model manager, dictionaries, `ph_num`, CSV↔TextGrid, words→lab, loudness check, strip `SP`, DiffSinger dataset, GAME MIDI annotation |
 
 - **Sidebar**: the four workflow tabs, resources (models / dictionaries), tools, settings (appearance, inference backend, interface language), about & licenses.
 - **Theme**: light / dark / system, Android 12+ dynamic color, ring color picker (outer ring = hue, inner disc = saturation; lightness comes from the M3 tonal palette and does not follow the seed color).
@@ -128,8 +128,11 @@ Each model folder inside the zip is accepted only if it carries the required fil
 |---|---|
 | HubertFA | `model.onnx` + `vocab.json` (optional `config.json`, per-language `.txt` dictionaries, `VERSION` = 5) |
 | TIFA | `model.onnx` + `spectrogram.onnx` + `vocabulary.json` |
+| GAME | `encoder.onnx` + `segmenter.onnx` + `estimator.onnx` + `dur2bd.onnx` + `bd2dur.onnx` + `config.json` |
 
-Only these two aligner families are supported. The zip name is a display label only and plays no part in detection: folders without `model.onnx` and its companions are skipped.
+HubertFA and TIFA are the two aligner families. GAME is **not an aligner** — it takes a `transcriptions.csv` that already carries `ph_seq`, `ph_dur` and `ph_num`, and writes `note_seq` / `note_dur` / `note_slur` (MIDI note annotations) back into it, for DiffSinger dataset labelling. Its weights are **not bundled** — download them from [`openvpi/GAME` releases](https://github.com/openvpi/GAME/releases) and import the folder as a zip; `config.json` is required and ships in the release archive. Audio is looked up at `<csv dir>/wavs/<name>.wav`; **flac is not supported** (convert to 16-bit PCM wav first).
+
+The zip name is a display label only and plays no part in detection: folders without `model.onnx` and its companions are skipped.
 
 **Precision detection** scans the ONNX protobuf directly (reads dtype / dims only, seeks past weights, ~0.6 s for 200 MB) and reports `fp32` / `fp16` / `int8`; the result is cached inside the model folder so the list does not rescan.
 
@@ -178,11 +181,11 @@ Android has no unified NPU interface, and this version **does not wire up vendor
 
 ## 7. Known limitations
 
-1. **Only HubertFA and TIFA are supported as aligners**: any other model family is neither bundled nor recognised, and will not show up after import.
+1. **Aligners: only HubertFA and TIFA.** Any other model family is neither bundled nor recognised. GAME is supported, but only for MIDI annotation (§3) — it is not an aligner, and its weights are not bundled.
 2. **The AP-labelling flow (`ap_infer.py`) is not wired into the UI.**
 3. **Alignment values differ from upstream by ~1e-4 s**, from thread count and float accumulation order. Expected.
 4. Devices with less than 4 GB RAM may struggle with HubertFA (roughly 400 MB resident).
-5. **TIFA and HubertFA can disagree on where an initial consonant belongs.** Both are deterministic Viterbi decoders and do not benefit from "run it several times and keep the best" (measured: adjusting `skip_penalty` only changes *which* token is skipped, not *how many* must be skipped). When the initial consonant is swallowed by the preceding `R`/`SP` span, compensate with "Initial offset prefetch" rather than re-running.
+5. **TIFA and HubertFA can disagree on where an initial consonant belongs.** TIFA is a deterministic decoder. HubertFA exposes `pad_times` (1/3/5): it runs the audio several times, each with a different amount of silence padded at both ends (`pad_length * i / pad_times`), then merges and de-duplicates the results — the inputs really do differ, so 3 or 5 can change the alignment. The app defaults to 1 (a single pass); upstream's desktop default is 3. When the initial consonant is swallowed by the preceding `R`/`SP` span, use "Initial offset prefetch" rather than relying on more passes.
 6. **Scope of oto.ini verification**: VCV alias coverage was checked over 840 alias forms, all present; initial `- X` entries are 202/202 complete once the boundary test includes `R`/`SP`/`AP`/`-`/`sil`. Parameter semantics were only verified under the OpenUtau Classic renderer (negative cutoff measured from `offset`); other renderers were not tested.
 
 ---

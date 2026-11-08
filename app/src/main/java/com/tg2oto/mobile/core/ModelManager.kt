@@ -124,6 +124,7 @@ object ModelManager {
             files.contains("model.onnx") && files.contains("spectrogram.onnx") -> "tifa"
             files.contains("model.onnx") && files.contains("vocab.json") -> "hubertfa"
             files.contains("model.onnx") && files.contains("vocabulary.json") -> "tifa"
+            files.contains("encoder.onnx") && files.contains("segmenter.onnx") -> "game"
             else -> null
         }
     }
@@ -211,7 +212,7 @@ object ModelManager {
             val v = runCatching { cache.readText().trim() }.getOrDefault("")
             if (v.isNotBlank()) return v
         }
-        val onnx = listOf("model.onnx")
+        val onnx = listOf("model.onnx", "encoder.onnx", "estimator.onnx")
             .map { File(dir, it) }
             .firstOrNull { it.exists() }
             ?: return "unknown"
