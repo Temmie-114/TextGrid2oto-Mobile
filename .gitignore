@@ -24,3 +24,10 @@ assets/models/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Git bundle (delivery artifact, not source)
+*.bundle
