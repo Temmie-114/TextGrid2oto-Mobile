@@ -200,16 +200,8 @@ fun RingColorPicker(
                     center = Offset(hueX, hueY)
                 )
 
-                // 彩度指示：中心圆上离圆心越远彩度越高
-                val satRadius = innerRadius * satState.floatValue
-                val satX = radius + cos(angleRad).toFloat() * satRadius
-                val satY = radius + sin(angleRad).toFloat() * satRadius
-                drawCircle(color = Color.White, radius = 7.dp.toPx(), center = Offset(satX, satY))
-                drawCircle(
-                    color = hsvToColor(hueState.floatValue, satState.floatValue, valState.floatValue),
-                    radius = 5.dp.toPx(),
-                    center = Offset(satX, satY)
-                )
+                // 中心圆本身就是当前种子色预览，不再绘制随拖动移动的彩度指示点
+                // （那个点会被误认为可拖拽的把手，实际不参与选取）
             }
         }
 
