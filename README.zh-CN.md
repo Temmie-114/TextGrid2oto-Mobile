@@ -103,7 +103,7 @@ Android 上没有 onnxruntime 的 Python wheel，librosa 又拖着 numba/scipy�
 | TIFA `TIFA-1.0-ST` | TIFA 官方权重（`openvpi/TIFA`） | 160 MB (fp32) | **78 MB（权重 fp16）** |
 | RMVPE 音高模型 | `lj1995/VoiceConversionWebUI`（`rmvpe.onnx`） | 362 MB (fp32) | **181 MB（整图 fp16）** |
 
-`assets/models/` 合计约 458 MB（对齐模型 277 MB + RMVPE 181 MB），APK 约 542 MB，安装后占用约 1 GB（首次启动会复制一份到 `filesDir`）。RMVPE 只在打开「生成 frq 基频率表」时才会加载；它是整图 fp16 转换（区别于对齐模型的权重级 fp16），在 CPU EP 上实测正常——x86 上每秒音频约 0.13 秒，440 Hz 测试音读出 439.5 Hz。
+`assets/models/` 合计约 458 MB（对齐模型 277 MB + RMVPE 181 MB），APK 约 542 MB，安装后占用约 1 GB（首次启动会复制一份到 `filesDir`）。RMVPE 只在打开「生成 frq 基频率表」时才会加载；它是整图 fp16 转换（区别于对齐模型的权重级 fp16），在 CPU EP 上实测正常——x86 上每秒音频约 0.11 秒，440 Hz 测试音读出 439.5 Hz。
 
 ### 关于 fp16
 
