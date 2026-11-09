@@ -91,7 +91,11 @@ def run(presamp_path, word_phone_json, wav_path, cv_sum, vc_sum, vv_sum, ignore)
             sm = vv_sum if text.lower() in _VOWELS else cv_sum
             offset, pre, overlap, consonant, cutoff = _params(
                 ph["xmin"], ph["xmax"], total_ms, sm)
-            lines.append(f"{audio}.wav={a},{offset},{pre},{overlap},{consonant},{cutoff}\n")
+            _wav = audio if str(audio).lower().endswith(".wav") else f"{audio}.wav"
+            # 上游内部顺序是 offset, fixed, -right, Prevoice, cross，
+            # 与 UTAU 文档里的写法不同；后面的 oto_read / oto_check 都按这套解析，
+            # 所以这里必须按同一顺序落盘，否则 overlap 会被当成右边界换算成负数。
+            lines.append(f"{_wav}={a},{offset},{consonant},{cutoff},{pre},{overlap}\n")
 
     with open(wav_path + "/phone_oto.ini", "w", encoding="utf-8") as f:
         for l in lines:

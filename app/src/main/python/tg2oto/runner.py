@@ -587,8 +587,12 @@ def _job_oto(p):
     ignore = p.get("ignore", "")
     template = (p.get("template") or "").strip()
     encoding = p.get("encoding", "UTF-8")
-    cover = p.get("cover", "n")
-    pitch = p.get("pitch", "")
+    # cover 只能是短字符串（空 / n / 1 之类），布尔或 None 会把字段拼错
+    _cv = p.get("cover", "n")
+    cover = "n" if _cv is None or isinstance(_cv, bool) else str(_cv)
+    # pitch 会直接拼在别名后面，布尔 / None 会变成 "False"/"None" 写进 oto
+    _pt = p.get("pitch", "")
+    pitch = "" if _pt is None or isinstance(_pt, bool) else str(_pt)
 
     word_phone = p.get("word_phone") or os.path.join(wav_path, "json", "word_phone.json")
     if not os.path.isfile(word_phone):
@@ -654,9 +658,15 @@ def _job_oto(p):
         try:
             from tg2oto.json2oto import frq_gen
             _mp = p.get("rmvpe_model") or ""
-            if not _mp or not os.path.isfile(_mp):
-                log(f"[frq] 找不到 RMVPE 模型: {_mp}，跳过")
+            log(f"[frq] 开关已开启，模型路径 = {_mp or '(未传入)'}")
+            if not _mp:
+                log("[frq] 没有拿到模型路径，跳过。请确认安装的是 1.2.0 及以上版本。")
+            elif not os.path.isfile(_mp):
+                _sz = os.path.getsize(_mp) if os.path.exists(_mp) else 0
+                log(f"[frq] RMVPE 模型不存在或为空（{_sz} 字节），跳过。"
+                    "内置模型可能还没释放完，等模型页进度结束后重试。")
             else:
+                log(f"[frq] 模型已找到（{os.path.getsize(_mp) // 1048576} MB）")
                 log("[frq] 开始用 RMVPE 生成基频率表，这一步比较慢，请耐心等待…")
                 def _frq_progress(v):
                     # 直接打到面板进度条；文件级粒度，每处理完一个 wav 前进一格
@@ -746,8 +756,20 @@ def _job_oto(p):
         log(f"presamp 基准自检失败: {_e}")
 
     _check_cancel()
-    cv = oto_rw.oto_read(os.path.join(wav_path, "cv_oto.ini"))
-    vc = oto_rw.oto_read(os.path.join(wav_path, "vc_oto.ini"))
+
+    # oto_read 在文件不存在时返回 False（不是列表），C+V 模式又根本不写
+    # cv_oto.ini / vc_oto.ini，直接相加会炸成 'bool' object is not iterable。
+    def _read_oto(_path):
+        _r = oto_rw.oto_read(_path)
+        return _r if isinstance(_r, list) else []
+
+    if mode == "PHONE":
+        # C+V：逐音素条目本身就是完整结果，直接当主数据用
+        cv = _read_oto(os.path.join(wav_path, "phone_oto.ini"))
+        vc = []
+    else:
+        cv = _read_oto(os.path.join(wav_path, "cv_oto.ini"))
+        vc = _read_oto(os.path.join(wav_path, "vc_oto.ini"))
     if not template or not os.path.exists(template):
         cv = oto_rw.oto_repeat(cv, cv_repeat)
         vc = oto_rw.oto_repeat(vc, vc_repeat)

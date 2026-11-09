@@ -36,7 +36,7 @@ object L {
 
     private val en: Map<String, String> = mapOf(
         "就绪" to "Ready",
-        "首次启动：正在释放内置模型（约 277MB，需要一点时间）" to "First launch: unpacking the bundled models (~277 MB), this takes a moment",
+        "首次启动：正在释放内置模型（约 458MB，需要一点时间）" to "First launch: unpacking the bundled models (~458 MB), this takes a moment",
         "内置模型就绪" to "Bundled models ready",
         "✔ 内置模型已释放到应用存储" to "✔ Bundled models extracted to app storage",
         "检测推理后端" to "Detect backends",

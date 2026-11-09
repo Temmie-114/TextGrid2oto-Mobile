@@ -93,8 +93,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val list = runCatching { ModelManager.list(getApplication()) }.getOrDefault(emptyList())
             _models.value = list
-            if (list.isEmpty() && _installProgress.value == null) {
-                appendLog(L.s("首次启动：正在释放内置模型（约 277MB，需要一点时间）"))
+            // 无条件走一次幂等的安装检查：marker 已存在时只补装后来新增的模型目录
+            // （例如 1.2.0 的 RMVPE），不会重复复制几百 MB 的老模型。
+            if (_installProgress.value == null) {
+                if (list.isEmpty()) {
+                    appendLog(L.s("首次启动：正在释放内置模型（约 458MB，需要一点时间）"))
+                }
                 startModelInstall()
             }
         }

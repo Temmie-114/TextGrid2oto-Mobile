@@ -45,7 +45,12 @@ def load_presamp(ini_path):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        input(f"读取presamp.ini失败: \n请检查是否存在[VOWEL]和[CONSONANT]部分")
+        import sys as _sys
+        try:
+            if _sys.stdin is not None and _sys.stdin.isatty():
+                input("读取presamp.ini失败: \n请检查是否存在[VOWEL]和[CONSONANT]部分")
+        except Exception:
+            pass
 
 
 

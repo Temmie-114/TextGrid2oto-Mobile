@@ -1,4 +1,5 @@
 import os
+import sys
 import wave
 import time
 #oto格式
@@ -21,7 +22,7 @@ def check_file(file_path):
         print(f'{GREEN}文件存在：{file_path}{RESET}')
         return False
     else:
-        input(f'{RED}文件不存在：{file_path}{RESET}')
+        print(f'{RED}文件不存在：{file_path}{RESET}')
         return True
 
 # 此函数用于检查文件是否存在，如果存在则添加数字后缀以生成唯一的文件路径。
@@ -46,12 +47,21 @@ def oto_read_text(file_path):
 
 #预发声转为负数
 def oto_check(file_path,oto_data):
-    file_path=file_path.strip("oto.ini")
+    # 只取所在目录：原来用 strip / 去后缀，遇到 phone_oto.ini、cv_oto.ini 时
+    # 会残留 "phone_"、"cv_" 前缀，拼出来的 wav 路径必然不存在。
+    file_path = os.path.dirname(file_path)
     new_oto_data=[]
     for oto in oto_data:
         if int(oto[4]) >0:
-            with wave.open(file_path+oto[0], 'rb') as f:
-                duration = f.getnframes() / f.getframerate() *1000
+            _wav = os.path.join(file_path, oto[0])
+            try:
+                with wave.open(_wav, 'rb') as f:
+                    duration = f.getnframes() / f.getframerate() *1000
+            except Exception:
+                # 找不到音频时不再中断整个任务：保留原值并提示
+                print(f'{RED}找不到音频，跳过右边界换算：{_wav}{RESET}')
+                new_oto_data.append(oto)
+                continue
             oto[4] =int(duration - int(oto[2]) - int(oto[4]))*-1
             if oto[4]>0:
                 print(f'{RED}右边界错误：{oto}wav:{duration}s{RESET}')
@@ -83,7 +93,7 @@ def oto_read(file_path):
             continue
     else:
         print('无法使用尝试的编码读取oto文件，请检查文件编码。')
-        input('按任意键退出')
+        _pause('按任意键退出')
         quit()
     print(f'{GREEN}oto文件解析成功：{file_path}{RESET}')
     return oto_check(file_path,oto_data)

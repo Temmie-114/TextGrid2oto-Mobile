@@ -75,7 +75,11 @@ def oto_read(file_path):
             continue
     else:
         print('无法使用尝试的编码读取oto文件，请检查文件编码。')
-        input('按任意键退出')
+        try:
+            if sys.stdin is not None and sys.stdin.isatty():
+                input('按任意键退出')
+        except Exception:
+            pass
         quit()
     print(f'oto文件解析成功：{file_path}')
     return oto_data

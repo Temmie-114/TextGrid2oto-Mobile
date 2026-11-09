@@ -94,9 +94,20 @@ def generate_for_dir(wav_dir, model_path, threads=2, log=print, should_stop=None
     import glob
     from tg2oto.inference.rmvpe_infer import RMVPE, resample, FRAME_MS
 
-    files = sorted(glob.glob(os.path.join(wav_dir, "*.wav")))
+    # 递归扫描：录音目录常按角色/批次分子目录，扩展名大小写也不统一
+    files = []
+    for _root, _dirs, _names in os.walk(wav_dir):
+        for _n in _names:
+            if _n.lower().endswith(".wav"):
+                files.append(os.path.join(_root, _n))
+    files.sort()
+    log(f"[frq] 目录 {wav_dir} 下找到 {len(files)} 个 wav")
     if not files:
-        log("[frq] 目录里没有 wav 文件")
+        try:
+            _sample = sorted(os.listdir(wav_dir))[:6]
+        except Exception:
+            _sample = []
+        log(f"[frq] 没有 wav，目录内容示例：{_sample}")
         return 0, 0
     model = RMVPE(model_path, threads=threads)
     ok = fail = 0

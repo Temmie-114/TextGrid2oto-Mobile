@@ -33,7 +33,11 @@ def ds_dict_read(ds_dictpath,ignore):
                     vowels.append(_strip(line[1]))
     except FileNotFoundError:
         print(f"错误：指定的文件 {ds_dictpath} 读取失败，请检查文件路径是否正确。")
-        input('按任意键退出')
+        try:
+            if sys.stdin is not None and sys.stdin.isatty():
+                input('按任意键退出')
+        except Exception:
+            pass
         exit()
     # ignore = ignore.split(',')
     # #忽略音素
