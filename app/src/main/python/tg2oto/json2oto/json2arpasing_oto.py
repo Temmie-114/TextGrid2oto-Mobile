@@ -1,4 +1,7 @@
 import json
+
+from tg2oto.json2oto.oto_dedup import dedup_oto
+from tg2oto.oto.oto_fmt import convert_line
 import re
 
 # ARPAsing 的静音音素除 UTAU 惯用的 R/SP/AP 外，录音清单里普遍写作 sil。
@@ -42,7 +45,7 @@ def presamp_read(presamps_path):
 def json2cvoto(cv_data,sum,ignore):
     oto = []
     for audio_file, data in cv_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long', [])
         if not phones:
@@ -96,7 +99,7 @@ def json2cvoto(cv_data,sum,ignore):
 def json2VCVoto(cv_data,CV_V,sum,ignore):
     oto = []
     for audio_file, data in cv_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long', [])
         if not phones:
@@ -165,17 +168,17 @@ def run(presamp_path,word_phone_json,wav_path,cv_sum,vc_sum,vv_sum,ignore):
     #     vc_data = json.load(f)
     with open(word_phone_json, 'r', encoding='utf-8') as f:
         cv_data = json.load(f)
-    oto = json2cvoto(cv_data,cv_sum,ignore)
+    oto = dedup_oto(json2cvoto(cv_data,cv_sum,ignore))
     # print(oto)
     with open(wav_path+'/cv_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
-            f.write(i)
+            f.write(convert_line(i))
         print('cv_oto.ini生成成功')
-    oto = json2VCVoto(cv_data,CV_V, vc_sum,ignore)
+    oto = dedup_oto(json2VCVoto(cv_data,CV_V, vc_sum,ignore))
     # print(oto)
     with open(wav_path+'/vc_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
-            f.write(i)
+            f.write(convert_line(i))
         print('vc_oto.ini生成成功')
 
 

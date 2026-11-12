@@ -48,7 +48,8 @@ class InferService : Service() {
     }
 
     private var client: Messenger? = null
-    private var running = false
+    // 主线程写、executor 线程写，跨线程读取，必须 volatile
+    @Volatile private var running = false
     private val executor = Executors.newSingleThreadExecutor()
 
     private val handler = Handler(Looper.getMainLooper()) { msg ->
@@ -58,6 +59,15 @@ class InferService : Service() {
                 client = msg.replyTo
                 if (running) {
                     sendLog("⚠ 推理进程正忙，忽略本次请求")
+                    // 必须回一条结果：主进程靠 RESULT/CRASH 才把「任务进行中」复位，
+                    // 只发日志会让界面永远停在运行态。
+                    runCatching {
+                        msg.replyTo?.send(Message.obtain(null, MSG_RESULT).apply {
+                            data = Bundle().apply {
+                                putString(KEY_RESULT, """{"ok":false,"error":"推理进程正忙，请稍后重试"}""")
+                            }
+                        })
+                    }
                 } else {
                     running = true
                     executor.execute { executeJob(payload) }

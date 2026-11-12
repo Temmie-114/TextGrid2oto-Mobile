@@ -1,5 +1,6 @@
 import os
-import sys
+
+from tg2oto.oto import oto_fmt
 import wave
 import time
 #oto格式
@@ -27,7 +28,9 @@ def check_file(file_path):
 
 # 此函数用于检查文件是否存在，如果存在则添加数字后缀以生成唯一的文件路径。
 def oto_path(file_path):
-    new_file_path=file_path.strip(".ini")
+    # strip(".ini") 是按字符集裁剪，不是去后缀：文件名以 i/n 结尾时会被裁坏
+    # （例如 mini.ini → m）。这里用 splitext 取真正的基名。
+    new_file_path = os.path.splitext(file_path)[0]
     for i in range (1,100):
         if not os.path.exists(file_path):
             return file_path
@@ -92,9 +95,11 @@ def oto_read(file_path):
         except UnicodeDecodeError:
             continue
     else:
+        # 原来这里是 _pause('按任意键退出') + quit()，但 _pause 在本文件里从未定义，
+        # 一旦所有编码都读失败就会 NameError；Android 上 quit() 还会把整个 Python
+        # 进程带走。改为与「文件不存在」分支一致，返回 False 交给调用方判断。
         print('无法使用尝试的编码读取oto文件，请检查文件编码。')
-        _pause('按任意键退出')
-        quit()
+        return False
     print(f'{GREEN}oto文件解析成功：{file_path}{RESET}')
     return oto_check(file_path,oto_data)
 
@@ -207,7 +212,6 @@ def oto_apply_template(oto_origin, template_path,pitch):
     new_oto_data = []
     match_count = 0          # 模板中有匹配，保留原值的条目数
     default_count = 0         # 模板中无匹配，设为默认值的条目数
-    unmatched_origin = len(oto_origin)  # 记录原数据中尚未匹配的条目数
     for wav_name, phoneme, nums in template_entries:
         key = (wav_name, phoneme)
         if key in origin_lookup:
@@ -260,7 +264,13 @@ def oto_write(file_path,oto_data,pitch,cover,oto_encoding):
                 if merged_text:
                     f.write(merged_text)
                 for oto in oto_data:
-                    f.write(f'{oto[0]}={oto[1]}{pitch},{oto[2]},{oto[3]},{oto[4]},{oto[5]},{oto[6]}\n')
+                    _f2, _f3, _f4, _f5, _f6 = oto[2], oto[3], oto[4], oto[5], oto[6]
+                    # UTAU 兼容风格：把第三个与第五个数值字段互换 ——
+                    # 第三位写 cross（小正数，UTAU 的 overlap），第五位写 -right（负值，UTAU 的 cutoff）。
+                    # 说明见 oto_fmt.py。
+                    if oto_fmt.STYLE == "utau":
+                        _f4, _f6 = _f6, _f4
+                    f.write(f'{oto[0]}={oto[1]}{pitch},{_f2},{_f3},{_f4},{_f5},{_f6}\n')
             print(f'{GREEN}新oto以 {encoding} 编码写入成功：{new_file_path}{RESET}')
             break
         except UnicodeEncodeError:
@@ -280,9 +290,9 @@ def run(oto_path):
 if __name__ == '__main__':
     start_time = time.time()
 
-    path = "G:\编程\\UU2VV\E3 - 副本\oto.ini"
+    path = r"G:\编程\UU2VV\E3 - 副本\oto.ini"
     oto=oto_read(path)
-    oto_write("G:\编程\\UU2VV\F3\oto.ini",oto)
+    oto_write(r"G:\编程\UU2VV\F3\oto.ini",oto)
 
     end_time = time.time()
     elapsed_time = end_time - start_time

@@ -1,4 +1,5 @@
 import re
+import sys
 from oto import oto_rw
 def cvvc_presamp_read(presamps_path):
     V = []

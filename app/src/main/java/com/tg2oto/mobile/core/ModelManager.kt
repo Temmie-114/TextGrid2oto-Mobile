@@ -58,12 +58,15 @@ object ModelManager {
         if (marker.exists()) {
             // 新版本可能新增内置模型目录（例如 RMVPE），只补装缺失的那一份，
             // 避免让老用户把几百 MB 的老模型再复制一遍。
+            // 返回值表示「本次是否真的写了东西」，没有补装时返回 false，
+            // 调用方可据此决定要不要在日志里报一句已释放。
             val rmvpe = File(root, "rmvpe/rmvpe.onnx")
-            if (!rmvpe.exists()) {
+            val changed = !rmvpe.exists()
+            if (changed) {
                 copyAssetTree(assets, "models/rmvpe", File(root, "rmvpe"))
             }
             onProgress(1f, "内置模型已就绪")
-            return@withContext true
+            return@withContext changed
         }
         val dirs = assets.list("models") ?: emptyArray()
         var total = 0L

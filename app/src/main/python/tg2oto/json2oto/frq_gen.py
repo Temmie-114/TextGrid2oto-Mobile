@@ -91,7 +91,6 @@ def generate_for_dir(wav_dir, model_path, threads=2, log=print, should_stop=None
     RMVPE 是逐文件整段推理，CPU 上大约 0.1~0.5 秒/秒音频，
     Android 上会慢数倍，所以调用方必须在界面上提示「需要较长时间」。
     """
-    import glob
     from tg2oto.inference.rmvpe_infer import RMVPE, resample, FRAME_MS
 
     # 递归扫描：录音目录常按角色/批次分子目录，扩展名大小写也不统一

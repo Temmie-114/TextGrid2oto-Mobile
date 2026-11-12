@@ -66,9 +66,12 @@ fun OtoScreen(vm: AppViewModel) {
     var presamp by remember { mutableStateOf(vm.defaultPresamp()) }
     var mode by remember { mutableStateOf("CVVC") }
     var cvParams by remember { mutableStateOf("1,3,1.5,1,2") }
-    var vcParams by remember { mutableStateOf(VC_PARAMS["CVVC"]!!) }
-    var vvParams by remember { mutableStateOf(VV_PARAMS["CVVC"]!!) }
+    var vcParams by remember { mutableStateOf(VC_PARAMS["CVVC"] ?: "3,0,2,1,3") }
+    var vvParams by remember { mutableStateOf(VV_PARAMS["CVVC"] ?: "3,3,1.5,1,3") }
     var cutoffFromEnd by remember { mutableStateOf(false) }
+    // oto 五字段位序：false = OpenUtau 风格（第 3 位负、第 5 位正小值）；
+    // true = UTAU 标准（第 3 位正 overlap、第 5 位负 cutoff）。
+    var utauStyle by remember { mutableStateOf(false) }
     // 基频率表走 RMVPE，很慢，所以做成独立开关
     var makeFrq by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
@@ -82,7 +85,7 @@ fun OtoScreen(vm: AppViewModel) {
     var ignore by remember { mutableStateOf("") }
     var template by remember { mutableStateOf("") }
     var encoding by remember { mutableStateOf("UTF-8") }
-    var cover by remember { mutableStateOf("n") }
+    var cover by remember { mutableStateOf("y") }
     var pitch by remember { mutableStateOf("") }
 
     val running by vm.running.collectAsState()
@@ -196,6 +199,14 @@ fun OtoScreen(vm: AppViewModel) {
                 cutoffFromEnd
             ) { cutoffFromEnd = it }
             SwitchRow(
+                L.s("输出原版 UTAU 兼容的位序"),
+                L.s("关（默认）：第 3 位写右边界的负值、第 5 位写交叉正数，OpenUtau 能按自己的一套解析。") +
+                    L.s("开：第 3 位换成正的 overlap、第 5 位换成负的 cutoff，即 UTAU 文档里的标准写法和符号。") +
+                    L.s("在原版 UTAU 里音头或结尾被切坏时打开它；OpenUtau 里用默认即可。") +
+                    L.s("C+V 模式本来就是按 UTAU 标准公式算的，不受此开关影响。"),
+                utauStyle
+            ) { utauStyle = it }
+            SwitchRow(
                 L.s("句首 cutoff 延伸到下一音节"),
                 L.s("默认关，严格按官方公式。打开后句首「- X」的播放区间会接到第一条 VCV 条目，") +
                     L.s("消除句首 10~170ms 的空档；数值会比官方公式长一截。"),
@@ -225,9 +236,10 @@ fun OtoScreen(vm: AppViewModel) {
                 options = listOf("UTF-8", "GBK", "GB18030", "SHIFT-JIS", "BIG5", "UTF-16LE"),
                 onSelect = { encoding = it }
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TextFieldSimple("cover", cover, { cover = it }, "n")
-            }
+            TextFieldSimple("cover", cover, { cover = it }, "y")
+            Text(L.s("cover：y 覆盖原 oto.ini；m 追加到末尾；其它值不覆盖，结果另存为 oto_01.ini。" +
+                "同一目录反复生成时，非 y 会一直产出新文件而原 oto.ini 不变。"),
+                style = MaterialTheme.typography.bodySmall)
             TextFieldSimple(L.s("pitch 后缀"), pitch, { pitch = it }, L.s("如 C4"))
             SwitchRow(
                 L.s("生成 frq 基频率表（RMVPE）"),
@@ -261,6 +273,7 @@ fun OtoScreen(vm: AppViewModel) {
                         put("template", template.trim())
                         put("encoding", encoding)
                         put("cover", cover)
+                        put("oto_style", if (utauStyle) "utau" else "ou")
                         put("pitch", pitch)
                         put("make_frq", makeFrq)
                         if (makeFrq) {

@@ -83,8 +83,17 @@ class InferClient(
     fun bind() {
         if (bound) return
         val intent = Intent(context, InferService::class.java)
-        runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
-            .onFailure { onLog("✘ 无法启动推理进程：${it.message}") }
+        val ok = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
+            .getOrElse { e ->
+                onLog("✘ 无法启动推理进程：${e.message}")
+                false
+            }
+        if (!ok) {
+            // bindService 失败（返回 false 或抛异常）不会触发 onServiceConnected /
+            // onServiceDisconnected，若不在这里收尾，主界面会把「任务进行中」永远挂住。
+            expectingResult = false
+            onResult("""{"ok":false,"error":"无法启动推理进程，请重试或重启应用"}""")
+        }
     }
 
     fun unbind() {

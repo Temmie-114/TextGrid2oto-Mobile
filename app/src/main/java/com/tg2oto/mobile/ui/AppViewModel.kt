@@ -22,8 +22,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import com.tg2oto.mobile.ui.i18n.L
 
@@ -68,7 +68,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _dicts = MutableStateFlow<List<DictFile>>(emptyList())
     val dicts: StateFlow<List<DictFile>> = _dicts.asStateFlow()
 
-    private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    // DateTimeFormatter 是不可变且线程安全的；appendLog 会被主线程（推理进程回调）
+    // 和 IO 协程同时调用，原先共用的 SimpleDateFormat 会在并发下抛异常或输出错乱。
+    private val timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss")
 
     fun settingsStore(): SettingsStore = store
 
@@ -89,13 +91,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- 模型
 
-    fun refreshModels() {
+    fun refreshModels(autoInstall: Boolean = true) {
         viewModelScope.launch(Dispatchers.IO) {
             val list = runCatching { ModelManager.list(getApplication()) }.getOrDefault(emptyList())
             _models.value = list
             // 无条件走一次幂等的安装检查：marker 已存在时只补装后来新增的模型目录
             // （例如 1.2.0 的 RMVPE），不会重复复制几百 MB 的老模型。
-            if (_installProgress.value == null) {
+            // autoInstall=false 用于「安装刚结束」的那次刷新：安装流程自己会刷新列表，
+            // 若这里再触发一次 startModelInstall，会因为 finally 已把进度标志清空
+            // 而形成「装完→刷新→再装」的无限递归。
+            if (autoInstall && _installProgress.value == null) {
                 if (list.isEmpty()) {
                     appendLog(L.s("首次启动：正在释放内置模型（约 458MB，需要一点时间）"))
                 }
@@ -105,7 +110,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshDicts() {
-        _dicts.value = DictionaryManager.imported(getApplication())
+        // listFiles() 是磁盘操作，不能留在调用方线程（MainActivity 在组合阶段直接调）
+        viewModelScope.launch(Dispatchers.IO) {
+            _dicts.value = DictionaryManager.imported(getApplication())
+        }
     }
 
     fun importDict(uri: android.net.Uri, displayName: String?) {
@@ -128,17 +136,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadResources() {
         viewModelScope.launch(Dispatchers.IO) {
-            val raw = PythonBridge.resources(getApplication())
-            runCatching { JSONObject(raw) }.onSuccess { json ->
-                val presamp = json.optJSONArray("presamp")
-                val dicts = json.optJSONArray("dicts")
-                _presets.value = Presets(
-                    presamp = (0 until (presamp?.length() ?: 0)).map { presamp!!.getString(it) },
-                    dicts = (0 until (dicts?.length() ?: 0)).map { dicts!!.getString(it) },
-                    presampRoot = json.optString("presamp_root"),
-                    dictRoot = json.optString("dict_root")
-                )
-            }
+            // 这份清单是静态的（内置 presamp / 字典不随用户操作改变），缓存到磁盘，
+            // 避免每次冷启动都为了列表去主进程启动一次 Chaquopy Python
+            // （那会让 UI 进程常驻一个解释器，削弱 :infer 的内存隔离）。
+            val cache = java.io.File(getApplication<Application>().filesDir, "resources_cache.json")
+            val cached = runCatching { cache.takeIf { it.isFile }?.readText(Charsets.UTF_8) }.getOrNull()
+            val usable = cached != null && cached.isNotBlank() && cached != "{}" &&
+                runCatching { JSONObject(cached).optString("presamp_root") }.getOrNull()
+                    ?.let { java.io.File(it).isDirectory } == true
+
+            val raw = if (usable) cached!! else PythonBridge.resources(getApplication())
+            val parsed = runCatching { JSONObject(raw) }.getOrNull() ?: return@launch
+            // 首次拉到真实清单才写缓存
+            if (!usable) runCatching { cache.writeText(raw, Charsets.UTF_8) }
+            val presamp = parsed.optJSONArray("presamp")
+            val dicts = parsed.optJSONArray("dicts")
+            _presets.value = Presets(
+                presamp = (0 until (presamp?.length() ?: 0)).map { presamp!!.getString(it) },
+                dicts = (0 until (dicts?.length() ?: 0)).map { dicts!!.getString(it) },
+                presampRoot = parsed.optString("presamp_root"),
+                dictRoot = parsed.optString("dict_root")
+            )
         }
     }
 
@@ -147,17 +165,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             _installProgress.value = 0f
             try {
-                ModelManager.installBuiltin(getApplication()) { pct, file ->
+                val changed = ModelManager.installBuiltin(getApplication()) { pct, file ->
                     _installProgress.value = pct
                     if (pct >= 1f) _status.value = L.s("内置模型就绪")
                     else if (file.isNotEmpty()) _status.value = "释放模型：${file.substringAfterLast('/')}"
                 }
-                appendLog(L.s("✔ 内置模型已释放到应用存储"))
+                if (changed) appendLog(L.s("✔ 内置模型已释放到应用存储"))
             } catch (e: Exception) {
                 appendLog("✘ 模型释放失败：${e.message}")
             } finally {
                 _installProgress.value = null
-                refreshModels()
+                refreshModels(autoInstall = false)
             }
         }
     }
@@ -317,20 +335,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * 逐行更新会让整页每行都重组一遍，这是之前界面卡顿的主因。
      */
     fun appendLog(line: String) {
-        val stamped = "${timeFmt.format(Date())}  $line"
+        val stamped = "${LocalTime.now().format(timeFmt)}  $line"
         synchronized(logPending) { logPending.addLast(stamped) }
+        scheduleLogFlush()
+    }
+
+    /** 起一次合批刷新；已有刷新在跑时直接返回。 */
+    private fun scheduleLogFlush() {
         if (logFlushScheduled) return
         logFlushScheduled = true
         viewModelScope.launch {
-            kotlinx.coroutines.delay(100)
-            while (true) {
-                val batch = synchronized(logPending) {
-                    if (logPending.isEmpty()) null
-                    else ArrayList<String>(logPending).also { logPending.clear() }
-                } ?: break
-                _logs.value = (_logs.value + batch).takeLast(400)
+            try {
+                kotlinx.coroutines.delay(100)
+                while (true) {
+                    val batch = synchronized(logPending) {
+                        if (logPending.isEmpty()) null
+                        else ArrayList<String>(logPending).also { logPending.clear() }
+                    } ?: break
+                    _logs.value = (_logs.value + batch).takeLast(400)
+                }
+            } finally {
+                // 必须在 finally 复位：中途抛异常时标志若一直为 true，
+                // 之后所有日志都会被这道门挡掉（表现为日志再也不刷新）。
+                logFlushScheduled = false
             }
-            logFlushScheduled = false
+            // 收口：循环判定「空了」之后、复位标志之前，别的线程可能刚好又写入，
+            // 那条不会被刚才的循环取到，这里补起一次。
+            val hasNew = synchronized(logPending) { !logPending.isEmpty() }
+            if (hasNew) scheduleLogFlush()
         }
     }
 

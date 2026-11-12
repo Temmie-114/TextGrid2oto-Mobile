@@ -1,4 +1,7 @@
 import json
+
+from tg2oto.json2oto.oto_dedup import dedup_oto
+from tg2oto.oto.oto_fmt import convert_line
 import re
 
 
@@ -55,7 +58,7 @@ def presamp_read(presamps_path):
 def json2cvoto(cv_data,sum,ignore):
     oto = []
     for audio_file, data in cv_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long') or data.get('wav_long') or []
         total_ms = float(long[1]) * 1000 if len(long) >= 2 else 0.0
@@ -168,7 +171,7 @@ def json2cvoto(cv_data,sum,ignore):
 def json2vcoto(vc_data,C_V,vc_sum,vv_sum,ignore):
     oto = []
     for audio_file, data in vc_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long') or data.get('wav_long') or []
         total_ms = float(long[1]) * 1000 if len(long) >= 2 else 0.0
@@ -260,18 +263,18 @@ def run(presamp_path,word_phone_json,wav_path,cv_sum,vc_sum,vv_sum,ignore):
     #     vc_data = json.load(f)
     with open(word_phone_json, 'r', encoding='utf-8') as f:
         cv_data = json.load(f)
-    oto = json2cvoto(cv_data,cv_sum,ignore)
+    oto = dedup_oto(json2cvoto(cv_data,cv_sum,ignore))
     oto = v_cross(oto,vv_sum[4],V_V)
     # print(oto)
     with open(wav_path+'/cv_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
-            f.write(i)
+            f.write(convert_line(i))
         print('cv_oto.ini生成成功')
-    oto = json2vcoto(cv_data,C_V, vc_sum,vv_sum,ignore)
+    oto = dedup_oto(json2vcoto(cv_data,C_V, vc_sum,vv_sum,ignore))
     # print(oto)
     with open(wav_path+'/vc_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
-            f.write(i)
+            f.write(convert_line(i))
         print('vc_oto.ini生成成功')
 
 
@@ -282,7 +285,7 @@ if __name__ == '__main__':
     # wav_path = 'G:/编程/utau自动标注/F3'
 
     presamp_path = '../presamp/jp-hira-presamp.ini'
-    wav_path = 'E:\OpenUtau\Singers\LXYM4_openutau\C5'
+    wav_path = r'E:\OpenUtau\Singers\LXYM4_openutau\C5'
     utau_phone = wav_path + '/TextGrid/json/utau_phone.json'
     word_phone_json = wav_path + '/TextGrid/json/word_phone.json'
 

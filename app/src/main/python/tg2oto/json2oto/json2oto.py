@@ -1,6 +1,9 @@
 import json
 import re
 
+from tg2oto.json2oto.oto_dedup import dedup_oto
+from tg2oto.oto.oto_fmt import convert_line
+
 
 #将json转换为oto
 #文件名=别名,左边界,固定,右边界（负值）,预发声,交叉
@@ -41,11 +44,13 @@ def presamp_read(presamps_path):
     print(f"CV_V:{CV_V}\nCV_C:{CV_C}\n,V_V:{V_V}")
     return CV_V, CV_C,V_V
 
+
+
 #VV_CV_VC
 def json2cvoto(cv_data,sum,ignore,CV_C=None):
     oto = []
     for audio_file, data in cv_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long', [])
         if not phones:
@@ -144,7 +149,7 @@ def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
 
     oto = []
     for audio_file, data in cv_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long', [])
         if not phones:
@@ -231,7 +236,7 @@ def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
 def json2coto(cv_data,sum,ignore,CV_C):
     oto = []
     for audio_file, data in cv_data.items():
-        autio_name = audio_file
+        autio_name = audio_file[:-4] if str(audio_file).lower().endswith(".wav") else audio_file
         phones = data.get('phones', {})
         long = data.get('long', [])
         if not phones:
@@ -286,25 +291,20 @@ def run(presamp_path,word_phone_json,wav_path,cv_sum,vc_sum,vv_sum,ignore):
     #     vc_data = json.load(f)
     with open(word_phone_json, 'r', encoding='utf-8') as f:
         cv_data = json.load(f)
-    oto = json2cvoto(cv_data,cv_sum,ignore,CV_C)
+    oto = dedup_oto(json2cvoto(cv_data,cv_sum,ignore,CV_C))
     # print(oto)
     with open(wav_path+'/cv_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
-            f.write(i)
+            f.write(convert_line(i))
         print('cv_oto.ini生成成功')
     # 语头「- CV」只保留 json2cvoto 里那一套（原样音节，如「- か」「- ba」）。
     # json2coto 那段会把同一批语头再写成辅音名（「- k」「- b」），与音节形式并存：
-    # 音素器只会认其中一种，另一种永远是死条目。这里不再追加。
-    # oto = json2coto(cv_data,cv_sum,ignore,CV_C)
-    # with open(wav_path + '/cv_oto.ini', 'a', encoding='utf-8') as f:
-    #     for i in oto:
-    #         f.write(i)
-    #     print('-c生成成功')
-    oto = json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore)
+    # 音素器只会认其中一种，另一种永远是死条目。这里不再追加（原追加代码已移除）。
+    oto = dedup_oto(json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore))
     # print(oto)
     with open(wav_path+'/vc_oto.ini', 'w', encoding='utf-8') as f:
         for i in oto:
-            f.write(i)
+            f.write(convert_line(i))
         print('vc_oto.ini生成成功')
 
 

@@ -560,13 +560,16 @@ def _floats(value, default=None):
 
 def _job_oto(p):
     from tg2oto.json2oto import json2oto, json2CV_oto, json2VCV_oto, json2arpasing_oto, json2phone_oto
-    from tg2oto.oto import oto_rw, oto_check
+    from tg2oto.oto import oto_rw, oto_check, oto_fmt
 
     wav_path = p["wav_dir"]
     presamp = p["presamp"]
     if presamp and not os.path.isabs(presamp):
         presamp = os.path.join(asset_root(), "presamp", presamp)
     mode = str(p.get("mode", "CVVC")).upper()
+    # oto 五字段位序：ou（默认，OpenUtau 风格：第 3 位为负、第 5 位为正小值）
+    # 或 utau（标准：overlap 正、cutoff 负）。见 tg2oto/oto/oto_fmt.py。
+    oto_fmt.set_style(p.get("oto_style", "ou"))
     # 官方 config/run-config-*.txt 的默认参数，按录制方式兜底，
     # 避免界面上手填残留别的模式的数值。
     _mode_defaults = {
@@ -610,6 +613,10 @@ def _job_oto(p):
     if hasattr(json2oto, "CUTOFF_FROM_END"):
         json2oto.CUTOFF_FROM_END = _cut_from_end
     log(f"录音方案: {mode} | cutoff 起算: {'文件末尾' if _cut_from_end else 'offset'}")
+    # 只有 VCV / CVV 的生成器实现了「从文件末尾倒算 cutoff」，其它模块没有该开关。
+    # 不提示的话，用户在 CVVC / ARPASING / C+V 下打开开关会以为生效了。
+    if _cut_from_end and mode not in ("VCV", "CVV"):
+        log(f"⚠ 录音方案 {mode} 不支持「cutoff 从文件末尾起算」，本开关对本次结果无效（仍按 offset 计算）")
     log(f"presamp: {os.path.basename(presamp)} | json: {word_phone}")
     log(f"忽略音素: {ignore!r} | 左边界/固定/右边界/预发声/交叉 = CV {cv_sum} | VC {vc_sum} | VV {vv_sum}")
     # —— 诊断：把这次 oto 真正读到的文件与解析结果打出来，
@@ -636,6 +643,74 @@ def _job_oto(p):
             log(f"[oto]   {_k}: {len(_ph)} 个音素 → {_seq}")
     except Exception as e:
         log(f"[oto] json 检查失败: {e}")
+
+    # —— 契约检查：这一步的输入应当已经是「音节」。
+    # presamp 的 [CONSONANT] 段是「辅音名=该辅音的全部音节」，值是辅音名、键是音节；
+    # 若某个音素恰好等于辅音名且不是任何音节，说明 JSON 阶段的音节合并没跑
+    # （例如手工编辑过 word_phone.json），继续生成只会得到碎片化别名。
+    # ARPAsing / 纯 C+V 的 presamp 没有 [CONSONANT] 段，read 会抛异常，这里直接跳过。
+    try:
+        import json as _json_raw
+        _cv_v_raw, _cv_c_raw, _v_v_raw = json2oto.presamp_read(presamp)
+        _bare = set()
+        _syl_keys = set(_cv_c_raw.keys())
+        _cons_names = set(_cv_c_raw.values()) - _syl_keys
+        _raw = _json_raw.load(open(word_phone, encoding="utf-8"))
+        for _v_raw in _raw.values():
+            for _p_raw in _v_raw.get("phones", {}).values():
+                _t_raw = str(_p_raw.get("text"))
+                if _t_raw in _cons_names:
+                    _bare.add(_t_raw)
+        if not _cv_c_raw or not _cons_names:
+            log("[oto] 音素形态检查跳过：该 presamp 没有「辅音名≠音节」的 [CONSONANT] 段")
+        elif _bare:
+            log(f"⚠ 发现裸辅音音素 {sorted(_bare)}：这些是该 presamp 里的辅音名，不是音节。"
+                f"通常是 JSON 阶段的音节合并（word2utau_phone）没有执行，"
+                f"直接生成会让 CV 别名碎成单音素。建议重跑 JSON 环节，或核对 word_phone.json。")
+        else:
+            log("[oto] 音素形态检查：全部为音节，符合 presamp 契约")
+    except Exception as e:
+        log(f"[oto] 音素形态检查跳过（该 presamp 无 [CONSONANT] 段或不可解析）: {e}")
+
+    # —— 表/语言匹配检查：音素大面积找不到对应条目时，通常是选错了表
+    # （例如用日文表跑中文音素）。这种情况下生成器不会报错，只会把原音素当别名写出去，
+    # 结果看起来有内容、实际无法使用，所以必须显式提示。
+    try:
+        import json as _json_unk
+        _raw2 = _json_unk.load(open(word_phone, encoding="utf-8"))
+        _cv_v2, _cv_c2, _v_v2 = json2oto.presamp_read(presamp)
+        _known = (set(_cv_v2.keys()) | set(_cv_v2.values()) |
+                  set(_cv_c2.keys()) | set(_cv_c2.values()) | set(_v_v2) |
+                  {"R", "SP", "AP", "-", "sil", "N", "ん"})
+        _tot = 0
+        _unk = set()
+        for _v2 in _raw2.values():
+            for _p2 in _v2.get("phones", {}).values():
+                _tot += 1
+                _t2 = str(_p2.get("text"))
+                if _t2 not in _known:
+                    _unk.add(_t2)
+        if _tot and len(_unk) >= max(2, _tot * 0.3):
+            log(f"⚠ 该 presamp 表里找不到 {len(_unk)} 个音素对应的条目：{sorted(_unk)[:10]}")
+            log("  通常是「表与录音语言不匹配」（例如拿日文表跑中文音素）。"
+                "别名会沿用原音素，生成结果可能无意义，请确认所选 presamp。")
+    except Exception as _e2:
+        log(f"[oto] 表匹配检查跳过: {_e2}")
+
+    # —— CVVC 专用：没有真辅音的表跑 CVVC，VC 别名会退化成「元音 R」
+    if mode == "CVVC":
+        try:
+            _ccv = json2oto.presamp_read(presamp)[1] or {}
+            _vals = set(_ccv.values())
+            if not _ccv:
+                log("⚠ 该 presamp 没有 [CONSONANT] 段（或音节不在表里），"
+                    "CVVC 的 VC 别名只能退化成「元音 R」，得不到真正的「元音+辅音」条目。")
+            elif len(_vals) == 1:
+                log(f"⚠ 该 presamp 的 [CONSONANT] 只映射到 {sorted(_vals)}，"
+                    "CVVC 的 VC 别名会全部变成同一形式——这张表不是 CVVC 表"
+                    "（例如「中文CV-presamp」把辅音名统一写成 R）。")
+        except Exception:
+            pass
 
     if mode == "VCV":
         json2VCV_oto.run(presamp, word_phone, wav_path, cv_sum, vc_sum, vv_sum, ignore)
@@ -697,16 +772,27 @@ def _job_oto(p):
     except Exception as _e:
         log(f"读取 json 失败: {_e}")
 
-    # ---- presamp 基准自检 ----
+    # ---- presamp 基准自检（按录音方案各自的别名形态推导）----
     # 不看生成器输出，直接从 json 音素 + presamp 表独立推导「应有别名」，
-    # 再与 oto 里实际存在的别名做差集，因此生成器自己漏掉的条目也能被发现。
-    #   VCV: 首音节 → "- X"；相邻 (A,B) → "CV_V[A] B"；末音节接 R → "CV_V[A] R"
+    # 再与 oto 里实际存在的别名做差集。
+    # 注意：各模式的别名形状并不相同，必须分派，否则非 VCV 模式会整片误报。
+    #   VCV    : 「- 首音节」/「前音节元音 + 后音节」/「末音节元音 R」
+    #   CVVC   : 「- 首音节」/「其余音节本身」/「前音节元音 + 后音节的辅音」/「末音节元音 R」
+    #   CVV    : 「音节」/「音节元音 R」/「_音节元音」（后者仅在给了 VV 参数时产出）
+    #   ARPASING / C+V : 别名体系与 presamp 音节表无关，跳过
     try:
         import json as _json4
         _d4 = _json4.load(open(word_phone, 'r', encoding='utf-8'))
         _B = ("R", "SP", "AP", "-", "sil")
         _CV = json2VCV_oto.presamp_read(presamp)
         _CV['R'] = '-'
+        # CVVC 需要「音节→首辅音」：json2oto.presamp_read 返回 (CV_V, CV_C, V_V)
+        _CC = {}
+        if mode == "CVVC":
+            try:
+                _CC = json2oto.presamp_read(presamp)[1] or {}
+            except Exception:
+                _CC = {}
         _act = {}
         for _f in [x for x in os.listdir(wav_path) if x.endswith("_oto.ini") or x == "oto.ini"]:
             for _l in open(os.path.join(wav_path, _f), 'r', encoding='utf-8'):
@@ -722,6 +808,7 @@ def _job_oto(p):
                 _act.setdefault(_w, set()).add(_a)
         _miss_files = []
         _total_miss = 0
+        _skip_logged = False
         for _k, _v in _d4.items():
             _key = _k[:-4] if _k.lower().endswith(".wav") else _k
             _ph = sorted(_v.get("phones", {}).items(), key=lambda x: int(x[0]))
@@ -729,29 +816,56 @@ def _job_oto(p):
             _real = [x for x in _t if x not in _B]
             if not _real:
                 continue
-            _exp = {"- " + _real[0]}
-            for _i in range(len(_real) - 1):
-                _a, _b = _real[_i], _real[_i + 1]
-                if _a in _CV:
-                    _exp.add(_CV[_a] + " " + _b)
-            if _real[-1] in _CV:
-                _exp.add(_CV[_real[-1]] + " R")
+            if mode == "VCV":
+                _exp = {"- " + _real[0]}
+                for _i in range(len(_real) - 1):
+                    _a, _b = _real[_i], _real[_i + 1]
+                    if _a in _CV:
+                        _exp.add(_CV[_a] + " " + _b)
+                if _real[-1] in _CV:
+                    _exp.add(_CV[_real[-1]] + " R")
+            elif mode == "CVVC":
+                _exp = {"- " + _real[0]} | set(_real[1:])
+                for _i in range(len(_real) - 1):
+                    _a, _b = _real[_i], _real[_i + 1]
+                    _cons = _CC.get(_b)
+                    if _a in _CV and _cons:
+                        _exp.add(_CV[_a] + " " + _cons)
+                if _real[-1] in _CV:
+                    _exp.add(_CV[_real[-1]] + " R")
+            elif mode == "CVV":
+                _exp = set(_real)
+                _has_vv = all(vv_sum)
+                for _s in _real:
+                    if _s in _CV:
+                        _exp.add(_CV[_s] + " R")
+                        if _has_vv:
+                            _exp.add("_" + _CV[_s])
+            else:
+                # 整个方案都不适用，只提示一次；原来写在循环里，多文件时每条音频刷一行。
+                if not _skip_logged:
+                    log("[oto] 基准自检跳过：该录音方案的别名体系与 presamp 音节表无关")
+                    _skip_logged = True
+                _exp = None
+            if _exp is None:
+                continue
             _got = _act.get(_key, set())
             _lack = sorted(_exp - _got)
             if _lack:
                 _total_miss += len(_lack)
                 _miss_files.append((_key, _lack))
-        log(f"presamp 基准自检: {len(_miss_files)}/{len(_d4)} 个文件缺别名，共缺 {_total_miss} 条")
-        for _k, _l in _miss_files[:15]:
-            log(f"  {_k}: 缺 {len(_l)} 条 → {' / '.join(_l)}")
-        _by_sym = {}
-        for _k, _l in _miss_files:
-            for _a in _l:
-                _sym = _a.split()[-1]
-                _by_sym[_sym] = _by_sym.get(_sym, 0) + 1
-        if _by_sym:
-            _top = sorted(_by_sym.items(), key=lambda x: -x[1])[:20]
-            log("缺失频次最高的音节: " + " | ".join(f"{k}×{v}" for k, v in _top))
+        if mode in ("VCV", "CVVC", "CVV"):
+            log(f"presamp 基准自检({mode}): {len(_miss_files)}/{len(_d4)} 个文件缺别名，共缺 {_total_miss} 条")
+            for _k, _l in _miss_files[:15]:
+                log(f"  {_k}: 缺 {len(_l)} 条 → {' / '.join(_l)}")
+            _by_sym = {}
+            for _k, _l in _miss_files:
+                for _a in _l:
+                    _sym = _a.split()[-1]
+                    _by_sym[_sym] = _by_sym.get(_sym, 0) + 1
+            if _by_sym:
+                _top = sorted(_by_sym.items(), key=lambda x: -x[1])[:20]
+                log("缺失频次最高的音节: " + " | ".join(f"{k}×{v}" for k, v in _top))
     except Exception as _e:
         log(f"presamp 基准自检失败: {_e}")
 
