@@ -60,6 +60,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
@@ -69,10 +70,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -285,6 +288,9 @@ private fun AppScaffold(
             )
         }
     ) {
+    // 小工具抽屉与主界面同层：抽屉作为 Box 的最后一个子项，
+    // 才能盖住 Scaffold 的 bottomBar（底部导航栏）。
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -405,7 +411,9 @@ private fun AppScaffold(
             // 所有页面切换走同一套过渡：同级切换轻微位移淡入，
             // 进/出二级页则是「新卡片从底部升起 + 旧卡片缩小后退」的堆叠效果。
             AnimatedContent(
-                targetState = PageKey(tab, overlay),
+                // 小工具改走独立抽屉（要盖住导航栏），不参与这里的页面切换动画：
+                // 置成 null 让背景停在当前页，由抽屉自己滑入。
+                targetState = PageKey(tab, if (overlay == "tools") null else overlay),
                 transitionSpec = {
                     val overlayChanged = initialState.overlay != targetState.overlay
                     if (overlayChanged) {
@@ -441,7 +449,6 @@ private fun AppScaffold(
                     when {
                         key.overlay == "models" -> ModelScreen(vm) { overlay = null }
                         key.overlay == "dicts" -> DictScreen(vm) { overlay = null }
-                        key.overlay == "tools" -> ToolsScreen(vm) { overlay = null }
                         key.overlay == "licenses" -> LicensesScreen { overlay = null }
                         else -> when (key.tab) {
                             0 -> LabScreen(vm)
@@ -483,6 +490,24 @@ private fun AppScaffold(
                     onToggle = { logExpanded = !logExpanded },
                     onClear = vm::clearLogs
                 )
+            }
+        }
+    }
+    }
+
+    // 小工具抽屉：从屏幕最下方升到整屏。它挂在 Scaffold 之外，
+    // 因此会盖住 bottomBar（底部导航栏）——导航栏被压在抽屉页面下方。
+    // FastOutSlowInEasing 是先快后慢的减速曲线，进、出都用 400ms。
+    AnimatedVisibility(
+        visible = overlay == "tools",
+        enter = slideInVertically(tween(400, easing = FastOutSlowInEasing)) { it } +
+            fadeIn(tween(150)),
+        exit = slideOutVertically(tween(400, easing = FastOutSlowInEasing)) { it } +
+            fadeOut(tween(200))
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                ToolsScreen(vm) { overlay = null }
             }
         }
     }

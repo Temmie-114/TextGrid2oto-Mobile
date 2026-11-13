@@ -197,7 +197,8 @@ def json2VCVoto(cv_data,CV_V,sum,ignore):
                 i += 1
                 continue
             elif (str(cont1['text']) in _BND or cont1['text'] in ignore) and cont['text'] in CV_V:
-                phone_name = CV_V[cont['text']] + ' ' + cont1['text']
+                # 末尾/边界：别名统一写 R，不能把 SP/AP 原样拼进去
+                phone_name = CV_V[cont['text']] + ' R'
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
                 left = float(cont["middle"]) * 1000 + ((float(cont['xmax']) - float(cont['middle'])) * 1000 / sum[0])
                 # 右线占比

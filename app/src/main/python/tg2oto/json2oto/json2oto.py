@@ -174,7 +174,10 @@ def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
                 i += 1
                 continue
             elif (str(cont1['text']) in _BND or cont1['text'] in ignore) and cont['text'] in CV_V:
-                phone_name = CV_V[cont['text']] + ' ' + cont1['text']
+                # 末尾/边界（R、SP、AP 或 ignore 里的音素）：别名一律写 R。
+                # 原样把 SP/AP 拼进去会产出「v SP」这类 OpenUtau 不认识的条目，
+                # 看起来就是「末尾那条 VC 没了」。
+                phone_name = CV_V[cont['text']] + ' R'
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
                 left = float(cont["middle"]) * 1000 + ((float(cont['xmax']) - float(cont['middle'])) * 1000 / vc_sum[0])
                 # 右线占比

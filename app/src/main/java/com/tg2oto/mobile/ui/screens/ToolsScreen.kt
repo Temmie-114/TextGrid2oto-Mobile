@@ -32,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -174,11 +173,12 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit = {}) {
 
     ScreenColumn {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 抽屉式的全屏面板：退出用左上角的小叉，不用返回箭头
             IconButton(onClick = onBack) {
                 Icon(
-                    painterResource(R.drawable.ic_ms_chevron_right),
-                    contentDescription = L.s("返回"),
-                    modifier = Modifier.rotate(180f).size(20.dp)
+                    painterResource(R.drawable.ic_ms_close),
+                    contentDescription = L.s("关闭"),
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Text(L.s("小工具"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
