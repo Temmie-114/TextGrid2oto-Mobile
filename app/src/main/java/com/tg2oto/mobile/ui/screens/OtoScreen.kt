@@ -19,13 +19,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tg2oto.mobile.R
-import com.tg2oto.mobile.core.ModelManager
 import com.tg2oto.mobile.ui.AppViewModel
 import com.tg2oto.mobile.ui.components.FileField
 import com.tg2oto.mobile.ui.components.FolderField
@@ -72,9 +70,6 @@ fun OtoScreen(vm: AppViewModel) {
     // oto 五字段位序：false = OpenUtau 风格（第 3 位负、第 5 位正小值）；
     // true = UTAU 标准（第 3 位正 overlap、第 5 位负 cutoff）。
     var utauStyle by remember { mutableStateOf(false) }
-    // 基频率表走 RMVPE，很慢，所以做成独立开关
-    var makeFrq by remember { mutableStateOf(false) }
-    val ctx = LocalContext.current
     // 官方公式下句首「- X」的播放区间够不到第一条 VCV 条目，会留空档；
     // 打开这盏才按非官方推导把它延伸过去。
     var extendInitialCutoff by remember { mutableStateOf(false) }
@@ -241,12 +236,6 @@ fun OtoScreen(vm: AppViewModel) {
                 "同一目录反复生成时，非 y 会一直产出新文件而原 oto.ini 不变。"),
                 style = MaterialTheme.typography.bodySmall)
             TextFieldSimple(L.s("pitch 后缀"), pitch, { pitch = it }, L.s("如 C4"))
-            SwitchRow(
-                L.s("生成 frq 基频率表（RMVPE）"),
-                L.s("开启后会逐个 wav 做音高分析并写 .frq。这一步比只出 oto 慢很多，" +
-                    "几十个文件可能要几分钟到十几分钟，请耐心等待。"),
-                makeFrq
-            ) { makeFrq = it }
         }
 
         Spacer(Modifier.height(4.dp))
@@ -275,10 +264,6 @@ fun OtoScreen(vm: AppViewModel) {
                         put("cover", cover)
                         put("oto_style", if (utauStyle) "utau" else "ou")
                         put("pitch", pitch)
-                        put("make_frq", makeFrq)
-                        if (makeFrq) {
-                            put("rmvpe_model", File(ModelManager.modelsRoot(ctx), "rmvpe/rmvpe.onnx").absolutePath)
-                        }
                     },
                     L.s("生成 oto.ini")
                 )

@@ -726,41 +726,6 @@ def _job_oto(p):
     else:
         raise ValueError(f"未知录音方案: {mode}")
 
-    # ---- 可选：生成 frq 基频率表（RMVPE）----
-    # 逐文件整段推理，CPU 上大约 0.1~0.5 秒/秒音频，Android 上还要慢数倍，
-    # 所以这是独立开关，开启前界面会提示「需要较长时间」。
-    if bool(p.get("make_frq", False)):
-        try:
-            from tg2oto.json2oto import frq_gen
-            _mp = p.get("rmvpe_model") or ""
-            log(f"[frq] 开关已开启，模型路径 = {_mp or '(未传入)'}")
-            if not _mp:
-                log("[frq] 没有拿到模型路径，跳过。请确认安装的是 1.2.0 及以上版本。")
-            elif not os.path.isfile(_mp):
-                _sz = os.path.getsize(_mp) if os.path.exists(_mp) else 0
-                log(f"[frq] RMVPE 模型不存在或为空（{_sz} 字节），跳过。"
-                    "内置模型可能还没释放完，等模型页进度结束后重试。")
-            else:
-                log(f"[frq] 模型已找到（{os.path.getsize(_mp) // 1048576} MB）")
-                log("[frq] 开始用 RMVPE 生成基频率表，这一步比较慢，请耐心等待…")
-                def _frq_progress(v):
-                    # 直接打到面板进度条；文件级粒度，每处理完一个 wav 前进一格
-                    if _sink is not None:
-                        try:
-                            _sink.progress(min(1.0, max(0.0, float(v))))
-                        except Exception:
-                            pass
-
-                frq_gen.generate_for_dir(
-                    wav_path, _mp,
-                    threads=int(p.get("threads") or 2),
-                    log=log,
-                    should_stop=is_cancelled,
-                    progress=_frq_progress,
-                )
-        except Exception as e:
-            log(f"[frq] 生成失败: {e}")
-
     try:
         import json as _json
         _d = _json.load(open(word_phone, 'r', encoding='utf-8'))
@@ -907,6 +872,47 @@ def _job_oto(p):
 # 5. 工具
 # ---------------------------------------------------------------------------
 
+def _job_frq(p):
+    """独立工作流：只用 RMVPE 给目录下每个 wav 写同名 .frq，不生成 oto。
+
+    从 oto 任务里拆出来的原因：它和 oto 的输入输出没有任何耦合，
+    挂在 oto 后面只会让「点完生成后还要再等十几分钟」变得难以预期。
+    """
+    from tg2oto.json2oto import frq_gen
+
+    wav_dir = p.get("wav_dir") or ""
+    if not wav_dir or not os.path.isdir(wav_dir):
+        raise FileNotFoundError(f"录音目录不存在：{wav_dir or '(未填写)'}")
+
+    model = p.get("rmvpe_model") or ""
+    if not model:
+        raise ValueError("没有拿到 RMVPE 模型路径")
+    if not os.path.isfile(model):
+        raise FileNotFoundError(
+            f"RMVPE 模型不存在：{model}。请到「资源管理」确认内置模型已释放完成。")
+
+    threads = max(1, int(p.get("threads") or 2))
+    log(f"[frq] 目录 {wav_dir}")
+    log(f"[frq] 模型 {os.path.basename(model)}（{os.path.getsize(model) // 1048576} MB），线程 {threads}")
+
+    def _prog(v):
+        if _sink is not None:
+            try:
+                _sink.progress(min(1.0, max(0.0, float(v))))
+            except Exception:
+                pass
+
+    ok, fail = frq_gen.generate_for_dir(
+        wav_dir, model,
+        threads=threads,
+        log=log,
+        should_stop=is_cancelled,
+        progress=_prog,
+    )
+    if fail:
+        log(f"[frq] 有 {fail} 个文件失败，上面的逐文件日志里有原因")
+
+
 def _job_phnum(p):
     from tg2oto.build_diffdataset import add_ph_num
 
@@ -997,6 +1003,7 @@ _HANDLERS = {
     "align": _job_align,
     "json": _job_json,
     "oto": _job_oto,
+    "frq": _job_frq,
     "phnum": _job_phnum,
     "csv2tg": _job_csv2tg,
     "words2lab": _job_words2lab,

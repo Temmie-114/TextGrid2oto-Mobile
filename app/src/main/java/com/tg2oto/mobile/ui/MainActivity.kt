@@ -120,6 +120,7 @@ import com.tg2oto.mobile.ui.screens.JsonScreen
 import com.tg2oto.mobile.ui.screens.LabScreen
 import com.tg2oto.mobile.ui.screens.OtoScreen
 import com.tg2oto.mobile.ui.screens.LicensesScreen
+import com.tg2oto.mobile.ui.screens.FrqScreen
 import com.tg2oto.mobile.ui.screens.ToolsScreen
 import com.tg2oto.mobile.ui.screens.ModelScreen
 import com.tg2oto.mobile.ui.screens.DictScreen
@@ -176,7 +177,8 @@ private val TABS = listOf(
     TabSpec("标注", R.drawable.ic_ms_tag),
     TabSpec("对齐", R.drawable.ic_ms_graphic_eq),
     TabSpec("JSON", R.drawable.ic_ms_data_object),
-    TabSpec("oto", R.drawable.ic_ms_library_music)
+    TabSpec("oto", R.drawable.ic_ms_library_music),
+    TabSpec("frq", R.drawable.ic_ms_auto_fix_high)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -467,6 +469,7 @@ private fun AppScaffold(
                                 models = models.filter { it.type == "hubertfa" || it.type == "tifa" },
                                 selectedModelId = settings.selectedModelId
                             )
+                            4 -> FrqScreen(vm)
                             else -> OtoScreen(vm)
                         }
                     }

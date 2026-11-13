@@ -16,6 +16,19 @@ try:
 except Exception:  # 让上层能捕获并给出「模型/运行时缺失」的提示
     ort = None
 
+
+def _java_bridge():
+    """Chaquopy 里没有（也装不上）onnxruntime，退回到 Kotlin 侧的 RmvpeBridge。
+
+    桌面环境没有这个类，返回 None，调用方仍按原来的「onnxruntime 不可用」处理。
+    """
+    try:
+        from com.tg2oto.mobile.core import RmvpeBridge
+        # Kotlin 的 object 在 Java 侧是一个带 INSTANCE 字段的类
+        return getattr(RmvpeBridge, "INSTANCE", RmvpeBridge)
+    except Exception:
+        return None
+
 SR = 16000
 NFFT = 1024
 HOP = 160
@@ -94,16 +107,37 @@ def logmel(audio16k):
 
 class RMVPE:
     def __init__(self, model_path, threads=2):
+        self.sess = None
+        self._jb = None
         if ort is None:
-            raise RuntimeError("onnxruntime 不可用")
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = max(1, int(threads))
-        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        self.sess = ort.InferenceSession(
-            model_path, so, providers=["CPUExecutionProvider"])
-        self.inp = self.sess.get_inputs()[0].name
-        self.out = self.sess.get_outputs()[0].name
+            self._jb = _java_bridge()
+            if self._jb is None:
+                raise RuntimeError("onnxruntime 不可用，也拿不到 Kotlin 侧的 RmvpeBridge")
+            self._jb.load(model_path, max(1, int(threads)))
+        else:
+            so = ort.SessionOptions()
+            so.intra_op_num_threads = max(1, int(threads))
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            self.sess = ort.InferenceSession(
+                model_path, so, providers=["CPUExecutionProvider"])
+            self.inp = self.sess.get_inputs()[0].name
+            self.out = self.sess.get_outputs()[0].name
         self.cents_map = np.pad(20.0 * np.arange(N_CLASS) + CENTS_OFFSET, (4, 4))
+
+    def _run_java(self, mel):
+        # 用二进制文件交接张量：numpy.tofile 在 arm64 上是小端，
+        # 与 Kotlin 侧的 ByteOrder.LITTLE_ENDIAN 一致。
+        import tempfile, shutil, os as _os
+        _d = tempfile.mkdtemp(prefix="rmvpe_")
+        try:
+            _mp = _os.path.join(_d, "mel.bin")
+            _op = _os.path.join(_d, "act.bin")
+            np.ascontiguousarray(mel, dtype=np.float32).tofile(_mp)
+            self._jb.runToFile(_mp, _op, int(mel.shape[1]), int(mel.shape[2]))
+            return np.fromfile(_op, dtype=np.float32).reshape(
+                mel.shape[0], mel.shape[2], -1)
+        finally:
+            shutil.rmtree(_d, ignore_errors=True)
 
     def f0(self, audio16k):
         """返回 (f0_hz, confidence)，每帧 10ms。"""
@@ -112,7 +146,10 @@ class RMVPE:
         pad = 32 * ((n - 1) // 32 + 1) - n
         if pad:
             mel = np.pad(mel, ((0, 0), (0, 0), (0, pad)))
-        act = self.sess.run([self.out], {self.inp: mel})[0][0][:n].astype(np.float32)
+        if self._jb is not None:
+            act = self._run_java(mel)[0][:n].astype(np.float32)
+        else:
+            act = self.sess.run([self.out], {self.inp: mel})[0][0][:n].astype(np.float32)
         conf = act.max(axis=1)
 
         center = np.argmax(act, axis=1)
