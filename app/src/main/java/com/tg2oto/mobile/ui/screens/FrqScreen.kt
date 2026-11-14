@@ -74,7 +74,8 @@ fun FrqScreen(vm: AppViewModel) {
             )
             TextFieldSimple(L.s("线程数"), threads, { threads = it }, "2")
             Text(
-                L.s("RMVPE 是逐文件整段推理，Android 上比桌面慢数倍；几十个文件通常要几分钟到十几分钟，中途可以取消。"),
+                L.s("上面的数字既是「同时处理几个文件」，也是每个文件分到的推理线程数；" +
+                    "手机上 2~4 通常最快，开太大反而互相抢核。可以随时取消。"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

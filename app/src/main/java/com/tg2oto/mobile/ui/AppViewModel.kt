@@ -392,6 +392,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelJob() {
         client?.cancel()
-        appendLog(L.s("⏹ 正在中止…（当前步骤结束后停止）"))
+        // InferService 只覆盖 HubertFA / TIFA 那类推理任务。lab / oto / frq / phnum
+        // 全在 Python 里跑，唯一的取消通道是 runner.request_cancel 置位 _cancel 事件。
+        // 原来这里只通知了 InferClient，所以这些任务的取消按钮点了等于没点。
+        runCatching { PythonBridge.requestCancel(getApplication()) }
+        appendLog(L.s("⏹ 正在中止…（进行中的那个文件会收尾，后面的不再排队）"))
     }
 }

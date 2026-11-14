@@ -53,6 +53,8 @@ object L {
         "失败" to "Failed",
         "未知错误" to "Unknown error",
         "⏹ 正在中止…（当前步骤结束后停止）" to "⏹ Stopping… (stops after the current step)",
+        "⏹ 正在中止…（进行中的那个文件会收尾，后面的不再排队）" to "⏹ Stopping… (the file in flight finishes, nothing new is queued)",
+        "上面的数字既是「同时处理几个文件」，也是每个文件分到的推理线程数；手机上 2~4 通常最快，开太大反而互相抢核。可以随时取消。" to "That number is both how many files run in parallel and how many inference threads each gets. On a phone 2–4 is usually fastest; larger values just compete for cores. You can cancel at any time.",
         "标注" to "Annotate",
         "对齐" to "Align",
         "TextGrid2oto Mobile 推理进程日志\n" to "TextGrid2oto Mobile inference log\n",

@@ -85,15 +85,17 @@ def _read_wav(path):
     return x, sr
 
 
-def generate_for_dir(wav_dir, model_path, threads=2, log=print, should_stop=None, progress=None):
+def generate_for_dir(wav_dir, model_path, threads=2, log=print, should_stop=None,
+                     progress=None, workers=None):
     """对目录下每个 .wav 生成同名 .frq。返回 (成功数, 失败数)。
 
-    RMVPE 是逐文件整段推理，CPU 上大约 0.1~0.5 秒/秒音频，
-    Android 上会慢数倍，所以调用方必须在界面上提示「需要较长时间」。
+    threads  给 ONNX Runtime 的 intra-op 线程数；
+    workers  同时处理几个文件，默认与 threads 相同。两者不设成相乘，
+    因为 ORT 的线程池是共享的，手机上开太多线程只会互相抢核。
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from tg2oto.inference.rmvpe_infer import RMVPE, resample, FRAME_MS
 
-    # 递归扫描：录音目录常按角色/批次分子目录，扩展名大小写也不统一
     files = []
     for _root, _dirs, _names in os.walk(wav_dir):
         for _n in _names:
@@ -108,42 +110,63 @@ def generate_for_dir(wav_dir, model_path, threads=2, log=print, should_stop=None
             _sample = []
         log(f"[frq] 没有 wav，目录内容示例：{_sample}")
         return 0, 0
-    model = RMVPE(model_path, threads=threads)
-    ok = fail = 0
 
-    def _emit(cur, total):
-        # 进度条：既走回调，也写一行 [i/n] 让日志解析器认得
-        if progress is not None:
+    model = RMVPE(model_path, threads=threads)
+    total = len(files)
+    w = max(1, min(int(workers or threads or 1), total))
+    log(f"[frq] 同时处理 {w} 个文件，每个文件 {max(1, int(threads))} 个 ORT 线程")
+
+    def _one(f):
+        x, sr = _read_wav(f)
+        if x.size == 0:
+            raise ValueError("空音频")
+        f0, _conf = model.f0(resample(x, sr))
+        n = frame_count(x.size, HOP)
+        f0r, _ = resample_to_hop(f0, FRAME_MS, x.size, hop=HOP, sr=sr)
+        # 音量必须按帧求平均绝对值。原来逐帧 np.average，一段 40 秒的音频
+        # 要跑一万多次 Python 调用，既慢又让取消看起来很迟钝；这里一次性向量化。
+        a = np.abs(x)
+        need = n * HOP
+        if a.size < need:
+            a = np.pad(a, (0, need - a.size))
+        amp = a[:need].reshape(n, HOP).mean(axis=1).astype(np.float64)
+        out = os.path.splitext(f)[0] + ".frq"
+        write_frq(out, f0r[:n], amp, hop=HOP)
+        return out
+
+    done = ok = fail = 0
+    pool = ThreadPoolExecutor(max_workers=w)
+    cancelled = False
+    try:
+        futs = {pool.submit(_one, f): f for f in files}
+        for fut in as_completed(futs):
+            # 每个文件完成时检查一次取消：未开始的任务被撤掉，
+            # 已经在跑的那个会收尾（ORT 的一次 Run 没法从外部打断），
+            # 但不会再把后面几十个文件一个个排下去。
+            if should_stop is not None and should_stop():
+                for _p in futs:
+                    _p.cancel()
+                cancelled = True
+                break
+            f = futs[fut]
+            done += 1
             try:
-                progress(min(1.0, cur / float(total)))
-            except Exception:
-                pass
-    for i, f in enumerate(files, 1):
-        if should_stop is not None and should_stop():
-            log("[frq] 已取消")
-            break
-        try:
-            x, sr = _read_wav(f)
-            if x.size == 0:
+                out = fut.result()
+                ok += 1
+                log(f"[frq] [{done}/{total}] {os.path.basename(f)} → {os.path.basename(out)}")
+            except Exception as e:
                 fail += 1
-                continue
-            f0, _conf = model.f0(resample(x, sr))
-            n = frame_count(x.size, HOP)
-            f0r, _ = resample_to_hop(f0, FRAME_MS, x.size, hop=HOP, sr=sr)
-            # 音量：与 PyRwu 一致，按每帧 hop 个采样点取平均绝对值
-            amp = np.zeros(n, dtype=np.float64)
-            for k in range(n):
-                seg = x[k * HOP:(k + 1) * HOP]
-                amp[k] = float(np.average(np.abs(seg))) if seg.size else 0.0
-            out = os.path.splitext(f)[0] + ".frq"
-            write_frq(out, f0r[:n], amp, hop=HOP)
-            ok += 1
-            _emit(i, len(files))
-            log(f"[frq] [{i}/{len(files)}] {os.path.basename(f)} → {os.path.basename(out)}")
-        except Exception as e:
-            fail += 1
-            _emit(i, len(files))
-            log(f"[frq] [{i}/{len(files)}] {os.path.basename(f)} 失败: {e}")
+                log(f"[frq] [{done}/{total}] {os.path.basename(f)} 失败: {e}")
+            if progress is not None:
+                try:
+                    progress(min(1.0, done / float(total)))
+                except Exception:
+                    pass
+    finally:
+        # wait=False：不要让取消按钮等那批已提交的任务全部跑完
+        pool.shutdown(wait=False)
+    if cancelled:
+        log(f"[frq] 已取消，已完成 {done}/{total}")
+        return ok, fail
     log(f"[frq] 完成：成功 {ok}，失败 {fail}")
     return ok, fail
-

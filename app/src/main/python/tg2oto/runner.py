@@ -905,6 +905,7 @@ def _job_frq(p):
     ok, fail = frq_gen.generate_for_dir(
         wav_dir, model,
         threads=threads,
+        workers=threads,
         log=log,
         should_stop=is_cancelled,
         progress=_prog,

@@ -21,8 +21,10 @@ import java.nio.ByteOrder
 object RmvpeBridge {
 
     private val lock = Any()
-    private var env: OrtEnvironment? = null
-    private var session: OrtSession? = null
+    // runToFile 会被多个工作线程同时调用：ORT 的 Session 允许并发 Run，
+    // 所以只在这里做 volatile 发布，不再整段加锁，否则「并行处理」会被锁回串行。
+    @Volatile private var env: OrtEnvironment? = null
+    @Volatile private var session: OrtSession? = null
     private var inputName = ""
     private var loadedPath = ""
 
@@ -49,9 +51,9 @@ object RmvpeBridge {
      * outPath:  [1, frames, classes] float32 LE
      */
     fun runToFile(melPath: String, outPath: String, bins: Int, frames: Int) {
-        synchronized(lock) {
-            val s = session ?: throw IllegalStateException("RMVPE 模型尚未加载")
-            val e = env ?: throw IllegalStateException("ONNX Runtime 环境未初始化")
+        val s = session ?: throw IllegalStateException("RMVPE 模型尚未加载")
+        val e = env ?: throw IllegalStateException("ONNX Runtime 环境未初始化")
+        run {
             val f = File(melPath)
             val need = bins.toLong() * frames * 4L
             require(f.length() >= need) {
