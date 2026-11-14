@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -123,6 +124,12 @@ private val OSS = listOf(
 @Composable
 fun LicensesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    // 版本号从 applicationId 的包信息里读，别再手写死：1.0.0 那行就是漏改的教训
+    val versionName = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
     val repo = "https://github.com/Temmie-114/TextGrid2oto-Mobile"
 
     fun open(url: String) {
@@ -159,7 +166,7 @@ fun LicensesScreen(onBack: () -> Unit) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Version 1.0.0 · GPL-3.0",
+                    "Version ${versionName.ifBlank { "?" }} · GPL-3.0",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
