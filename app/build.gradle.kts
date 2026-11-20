@@ -13,8 +13,8 @@ android {
         applicationId = "com.tg2oto.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "1.3.5"
+        versionCode = 21
+        versionName = "1.3.8"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

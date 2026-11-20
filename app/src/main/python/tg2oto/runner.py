@@ -559,6 +559,7 @@ def _floats(value, default=None):
 
 
 def _job_oto(p):
+    from tg2oto.json2oto.oto_dedup import fill_initial_aliases
     from tg2oto.json2oto import json2oto, json2CV_oto, json2VCV_oto, json2arpasing_oto, json2phone_oto
     from tg2oto.oto import oto_rw, oto_check, oto_fmt
 
@@ -857,7 +858,10 @@ def _job_oto(p):
     if vc_offset != [0.0, 0.0, 0.0, 0.0, 0.0]:
         vc = oto_rw.oto_offset(vc, vc_offset)
 
-    oto_rw.oto_write(os.path.join(wav_path, "auto_oto.ini"), cv + vc, "", "y", encoding)
+    # 句首条目补齐：见 fill_initial_aliases 的说明，缺了它 ei/ai/an 这类
+    # 从没当过录音首音节的音节，句首一处就整句缺音。
+    _merged = fill_initial_aliases(cv + vc, log)
+    oto_rw.oto_write(os.path.join(wav_path, "auto_oto.ini"), _merged, "", "y", encoding)
     oto_data = oto_rw.oto_read(os.path.join(wav_path, "auto_oto.ini"))
     if template and os.path.exists(template):
         log(f"应用模板: {template}")
@@ -1019,19 +1023,39 @@ _HANDLERS = {
 # 资源路径（Chaquopy 会把包内数据文件提取到文件系统）
 # ---------------------------------------------------------------------------
 
+# 内置表清单一律硬编码：Chaquopy 里 Python 源码是打进 app.imy（zip）的，
+# asset_root() 拿到的不是真实目录，os.walk / listdir 扫不到任何文件，
+# 界面下拉就永远是空的（表现为「内置 presamp 尚未加载」）。
+_BUILTIN_PRESAMPS = [
+    "ja-presamp.ini",
+    "en-arpasing-presamp.ini",
+    "中文CV-presamp.ini",
+    "risku式中文CVVCpresamp.ini",
+    "樗儿式中文VCV-presamp.ini",
+    "more/Hr.J式中文CVVC(哈鲁鲁式)-presamp.ini",
+    "more/jp-hira-presamp.ini",
+    "more/jp-romaji-presamp.ini",
+]
+_BUILTIN_DICTS = ["ja.txt", "en.txt", "zh.txt", "ja-romaji", "hira2roma_list.txt"]
+
+
 def resources() -> str:
     """内置字典 / presamp 清单，供界面下拉。"""
     root = asset_root()
-    presamp = []
-    for dirpath, _dirs, files in os.walk(os.path.join(root, "presamp")):
-        for f in files:
-            if f.endswith(".ini"):
-                presamp.append(os.path.relpath(os.path.join(dirpath, f), os.path.join(root, "presamp")))
-    dicts = []
-    for dirpath, _dirs, files in os.walk(os.path.join(root, "dictionary")):
-        for f in files:
-            if f.endswith(".txt"):
-                dicts.append(os.path.relpath(os.path.join(dirpath, f), os.path.join(root, "dictionary")))
+    presamp = list(_BUILTIN_PRESAMPS)
+    dicts = list(_BUILTIN_DICTS)
+    # 桌面运行时 os.walk 是能用的，扫到的额外文件补进清单（不覆盖硬编码项）
+    for sub, dest, ext in (("presamp", presamp, ".ini"), ("dictionary", dicts, ".txt")):
+        try:
+            for dirpath, _dirs, files in os.walk(os.path.join(root, sub)):
+                for f in files:
+                    if not f.endswith(ext):
+                        continue
+                    rel = os.path.relpath(os.path.join(dirpath, f), os.path.join(root, sub))
+                    if rel not in dest:
+                        dest.append(rel)
+        except Exception:
+            pass
     return json.dumps({
         "presamp": sorted(presamp),
         "dicts": sorted(dicts),
@@ -1051,6 +1075,6 @@ def presamp_path(name: str) -> str:
         "en-arpasing-presamp.ini": os.path.join(root, "presamp", "en-arpasing-presamp.ini"),
         "中文CV-presamp.ini": os.path.join(root, "presamp", "中文CV-presamp.ini"),
         "risku式中文CVVCpresamp.ini": os.path.join(root, "presamp", "risku式中文CVVCpresamp.ini"),
-        "中文VCV-presamp.ini": os.path.join(root, "presamp", "presamp", "中文VCV-presamp.ini"),
+        "樗儿式中文VCV-presamp.ini": os.path.join(root, "presamp", "樗儿式中文VCV-presamp.ini"),
     }
     return mapping.get(name, os.path.join(root, "presamp", name))

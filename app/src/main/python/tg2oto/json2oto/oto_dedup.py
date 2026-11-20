@@ -42,3 +42,31 @@ def dedup_oto(oto, keep="first", label=""):
         print(f"{prefix}去重：丢弃 {dropped} 条重复别名"
               f"（同文件内保留{'最后' if keep == 'last' else '最先'}出现的一条）")
     return out
+
+
+def fill_initial_aliases(oto, log=None):
+    """给「有裸条目、但没有 - 音节」的音节补一条句首条目。
+
+    UTAU / OpenUtau 的句首音符只能匹配「- x」。而 oto 生成时「- x」只来自
+    每条连单录音的第一个音节——从没当过首音节的音节（ei、ai、an、en、ou 等）
+    就整批没有句首条目，句首一用就缺音。这里按裸条目复制一条，参数完全一致：
+    两者本来就是同一段音头，只是别名不同。
+    """
+    have = {o[1][2:] for o in oto if o[1].startswith("- ")}
+    out = []
+    added = 0
+    for o in oto:
+        out.append(o)
+        alias = o[1]
+        # 「_韵母」是延音条目，不是音节本身，不能当成音节去补「- 音节」，
+        # 否则会写出「- _i」「- _a」这种没有任何引擎认识的别名。
+        if alias.startswith("- ") or alias.startswith("_") or " " in alias:
+            continue
+        if alias in have:
+            continue
+        out.append([o[0], "- " + alias] + list(o[2:]))
+        have.add(alias)
+        added += 1
+    if added and log:
+        log(f"[oto] 补齐句首条目 +{added} 条「- 音节」")
+    return out

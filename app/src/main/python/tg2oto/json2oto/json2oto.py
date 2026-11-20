@@ -145,6 +145,24 @@ def json2cvoto(cv_data,sum,ignore,CV_C=None):
     return oto
 
 
+def _sustain_line(wav, cont, CV_V, vv_sum):
+    """前音节韵母的「延音」条目，别名写作「_韵母」。
+
+    「ni / _i / hao」这种纯韵母过渡用的就是它：前一个音节的韵母单独延长一段。
+    原来 CVVC 路径只生成「a b」「a a」两种别名，_韵母 一条都没有，
+    OpenUtau 里 _i、_ang、_en 这类音符就会显示成未匹配。
+    """
+    v = CV_V.get(str(cont.get('text')))
+    if not v or not all(vv_sum):
+        return None
+    left = float(cont["middle"]) * 1000 + ((float(cont['xmax']) - float(cont['middle'])) * 1000 / vv_sum[0])
+    right = (float(cont['xmax']) * 1000 - left) / vv_sum[2]
+    pre = right / vv_sum[3]
+    fixed = (right - pre) / vv_sum[1] + pre if vv_sum[1] else pre
+    cross = right / vv_sum[4]
+    return f"{wav}.wav=_{v},{left},{fixed},-{right},{pre},{cross}\n"
+
+
 def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
 
     oto = []
@@ -209,6 +227,9 @@ def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
                 cross = (float(cont['xmax']) * 1000 - left ) / vv_sum[4]
                 i += 1
                 oto.append(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
+                _sus = _sustain_line(autio_name, cont, CV_V, vv_sum)
+                if _sus:
+                    oto.append(_sus)
             elif cont1['text'] in CV_C and cont['text'] in CV_V:
                 phone_name = CV_V[cont['text']] + ' ' + CV_C[cont1['text']]
                 # autio_name=phone_name,left,fixed,right（负值）,Prevoice,cross
@@ -231,6 +252,9 @@ def json2vcoto(cv_data,CV_V, CV_C,V_V , vc_sum,vv_sum,ignore):
                 cross = (float(cont['xmax']) * 1000 - left ) / vc_sum[4]
                 i += 1
                 oto.append(f"{autio_name}.wav={phone_name},{left},{fixed},-{right},{Prevoice},{cross}\n")
+                _sus = _sustain_line(autio_name, cont, CV_V, vv_sum)
+                if _sus:
+                    oto.append(_sus)
             else:
                 i += 1
                 continue

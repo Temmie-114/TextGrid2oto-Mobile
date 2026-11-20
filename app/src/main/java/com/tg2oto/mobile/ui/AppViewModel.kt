@@ -141,9 +141,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // （那会让 UI 进程常驻一个解释器，削弱 :infer 的内存隔离）。
             val cache = java.io.File(getApplication<Application>().filesDir, "resources_cache.json")
             val cached = runCatching { cache.takeIf { it.isFile }?.readText(Charsets.UTF_8) }.getOrNull()
+            // 只认「清单里真的有 presamp」的缓存：早年 Chaquopy 下 os.walk 扫不到
+            // asset 虚拟目录，缓存里可能是空数组，用它会让下拉永远空着。
+            // 也不再拿 presamp_root 的 isDirectory 判定——那是 zip 里的虚拟路径。
             val usable = cached != null && cached.isNotBlank() && cached != "{}" &&
-                runCatching { JSONObject(cached).optString("presamp_root") }.getOrNull()
-                    ?.let { java.io.File(it).isDirectory } == true
+                runCatching { JSONObject(cached) }.getOrNull()
+                    ?.let { (it.optJSONArray("presamp")?.length() ?: 0) > 0 } == true
 
             val raw = if (usable) cached!! else PythonBridge.resources(getApplication())
             val parsed = runCatching { JSONObject(raw) }.getOrNull() ?: return@launch

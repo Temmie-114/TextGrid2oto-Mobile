@@ -2,7 +2,7 @@ import os
 import numpy as np
 
 # UTAU / OpenUtau 的频率表（.frq）二进制格式：
-#   "FREQ0003"                     9 字节魔数
+#   "FREQ0003"                     8 字节魔数（不是 9：原注释写错过，照 9 解析会整体错位）
 #   uint32 LE   hop                每帧对应的采样点数，UTAU 固定 256
 #   float64 LE  平均 f0            读方只用来做基准
 #   16 字节     生成者签名          任意填充，读取时忽略
